@@ -1,12 +1,28 @@
-"""Exa web search with publish-date filtering (BLF layer 1), async port.
+"""Web search backends with publish-date filtering + leak filter.
 
-Live web_search backend. Uses endPublishedDate=cutoff plus client-side date
-drop, then the BLF layer-2 LLM filter (leak_filter.filter_results).
+Backends (PF_SEARCH_BACKEND):
+  tavily     — Tavily Search API (free tier; end_date cutoff)
+  exa        — Exa API (supports endPublishedDate)
+  agentcore  — Amazon Bedrock AgentCore Web Search via Gateway MCP
+  none       — disabled (returns empty / error)
+
+Env:
+  PF_SEARCH_BACKEND          — tavily | exa | agentcore | none (auto if unset)
+  TAVILY_API_KEY             — required for tavily
+  EXA_API_KEY                — required for exa
+  AGENTCORE_GATEWAY_URL      — MCP endpoint, e.g.
+      https://gateway-XXXX.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp
+  AGENTCORE_GATEWAY_ID       — optional; used to derive URL if URL unset
+  AWS_REGION / AWS_DEFAULT_REGION — default us-east-1 (AgentCore Web Search region)
+  AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_PROFILE — IAM for Gateway (SigV4)
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
+from typing import Any
 
 import httpx
 
@@ -19,7 +35,43 @@ from prime_forecast.leak_filter import (
 )
 
 _EXA_URL = "https://api.exa.ai/search"
+_TAVILY_URL = "https://api.tavily.com/search"
 _MAX_TEXT_CHARS = 2000
+_AGENTCORE_TOOL_NAMES = ("WebSearch", "WebSearchTool", "web_search", "web-search")
+_BACKENDS = frozenset({"tavily", "exa", "agentcore", "none"})
+
+
+def search_backend() -> str:
+    """Resolve active search backend from env."""
+    raw = os.environ.get("PF_SEARCH_BACKEND", "").strip().lower()
+    if raw in _BACKENDS:
+        return raw
+    if os.environ.get("AGENTCORE_GATEWAY_URL") or os.environ.get("AGENTCORE_GATEWAY_ID"):
+        return "agentcore"
+    if os.environ.get("TAVILY_API_KEY", "").strip():
+        return "tavily"
+    if os.environ.get("EXA_API_KEY", "").strip():
+        return "exa"
+    return "none"
+
+
+def agentcore_region() -> str:
+    return (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or "us-east-1"
+    )
+
+
+def agentcore_gateway_url() -> str:
+    url = os.environ.get("AGENTCORE_GATEWAY_URL", "").strip()
+    if url:
+        return url.rstrip("/")
+    gw_id = os.environ.get("AGENTCORE_GATEWAY_ID", "").strip()
+    if not gw_id:
+        return ""
+    region = agentcore_region()
+    return f"https://gateway-{gw_id}.gateway.bedrock-agentcore.{region}.amazonaws.com/mcp"
 
 
 def _age_flag(published: str | None, cutoff_date: str) -> str:
@@ -34,6 +86,131 @@ def _age_flag(published: str | None, cutoff_date: str) -> str:
     return f"  [ok, before {str(cutoff_date)[:10]}]"
 
 
+def _sanitize_query(query: str, *, max_chars: int = 400) -> str:
+    q = sanitize_search_query(query)
+    if len(q) > max_chars:
+        q = q[:max_chars].rsplit(" ", 1)[0]
+    return q
+
+
+def _build_from_items(
+    items: list[dict],
+    *,
+    cutoff_date: str,
+) -> tuple[str, list[dict]]:
+    """Convert provider-normalized items into (raw_blocks, parsed)."""
+    blocks: list[str] = []
+    parsed: list[dict] = []
+    cutoff_str = str(cutoff_date)[:10]
+    cutoff_dt = parse_ts(cutoff_str)
+
+    for item in items:
+        url = item.get("url", "") or ""
+        if url and domain_blocked(url):
+            continue
+        title = item.get("title", "") or ""
+        pub = item.get("publishedDate") or item.get("published_date") or item.get("published") or ""
+        if cutoff_dt is not None and pub:
+            d = parse_ts(pub)
+            if d is not None and d > cutoff_dt:
+                continue
+        text = (item.get("text") or item.get("snippet") or item.get("body") or "")[:_MAX_TEXT_CHARS]
+        flag = _age_flag(pub, cutoff_str)
+        block = f"{title}\n{url}\nPublished: {pub}{flag}\n{text}"
+        blocks.append(block)
+        parsed.append({
+            "title": title,
+            "url": url,
+            "snippet": text[:400],
+            "body": text,
+            "published": pub,
+        })
+    return RESULTS_SEPARATOR.join(blocks), parsed
+
+
+async def _apply_leak_filter(
+    raw: str,
+    parsed: list[dict],
+    *,
+    cutoff_date: str,
+    question: str,
+) -> tuple[str, list[dict], dict]:
+    filtered, filter_debug = await filter_results(raw, cutoff_date, question=question)
+    if filtered != raw:
+        kept_urls = set()
+        for part in filtered.split(RESULTS_SEPARATOR):
+            for line in part.splitlines():
+                if line.startswith("http"):
+                    kept_urls.add(line.strip())
+                    break
+        if kept_urls:
+            parsed = [p for p in parsed if p.get("url") in kept_urls]
+        else:
+            # Keep undated/title-only hits that survived filter but have no URL line
+            parsed = [] if kept_urls == set() and filtered.strip() == "" else [
+                p for p in parsed if (p.get("url") in kept_urls) or not p.get("url")
+            ]
+            if not filtered.strip():
+                parsed = []
+        raw = filtered
+    return raw, parsed, filter_debug
+
+
+# ----------------------------------------------------------------- Tavily
+
+async def search_tavily(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Tavily Search API. Uses end_date for hard publish cutoff when available."""
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("TAVILY_API_KEY not set (required for PF_SEARCH_BACKEND=tavily)")
+
+    q = _sanitize_query(query, max_chars=400)
+    if not q:
+        raise ValueError("query empty after sanitization")
+    k = max(1, min(int(num_results), 20))
+
+    payload: dict = {
+        "api_key": api_key,
+        "query": q,
+        "max_results": k,
+        "search_depth": "basic",
+        "include_answer": False,
+        "include_raw_content": False,
+    }
+    cutoff_str = str(cutoff_date)[:10] if cutoff_date else ""
+    if cutoff_str:
+        # Tavily rejects results published after end_date (YYYY-MM-DD).
+        payload["end_date"] = cutoff_str
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(_TAVILY_URL, json=payload)
+        r.raise_for_status()
+        data = r.json()
+
+    items = []
+    for item in data.get("results", []) or []:
+        items.append({
+            "title": item.get("title", "") or "",
+            "url": item.get("url", "") or "",
+            "publishedDate": (
+                item.get("published_date")
+                or item.get("publishedDate")
+                or ""
+            ),
+            "text": (item.get("content") or item.get("raw_content") or "")[:_MAX_TEXT_CHARS],
+        })
+    raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
+
+
+# ------------------------------------------------------------------- Exa
+
 async def search_exa(
     query: str,
     *,
@@ -44,10 +221,9 @@ async def search_exa(
     """Returns (raw_filtered_text, parsed_results, filter_debug)."""
     api_key = os.environ.get("EXA_API_KEY", "").strip()
     if not api_key:
-        raise ValueError("EXA_API_KEY not set (required for live web_search)")
+        raise ValueError("EXA_API_KEY not set (required for PF_SEARCH_BACKEND=exa)")
 
-    q = sanitize_search_query(query)
-    q = q[:400].rsplit(" ", 1)[0] if len(q) > 400 else q
+    q = _sanitize_query(query, max_chars=400)
     if not q:
         raise ValueError("query empty after sanitization")
     k = max(1, min(int(num_results), 20))
@@ -70,54 +246,160 @@ async def search_exa(
         r.raise_for_status()
         data = r.json()
 
-    blocks = []
-    parsed = []
-    cutoff_str = str(cutoff_date)[:10]
-    cutoff_dt = parse_ts(cutoff_str)
-
+    items = []
     for item in data.get("results", []):
-        url = item.get("url", "") or ""
-        if domain_blocked(url):
-            continue
-        title = item.get("title", "") or ""
-        pub = item.get("publishedDate") or item.get("published_date") or ""
-        if cutoff_dt is not None and pub:
-            d = parse_ts(pub)
-            if d is not None and d > cutoff_dt:
-                continue
-        text = (item.get("text") or item.get("snippet") or "")[:_MAX_TEXT_CHARS]
-        flag = _age_flag(pub, cutoff_str)
-        block = f"{title}\n{url}\nPublished: {pub}{flag}\n{text}"
-        blocks.append(block)
-        parsed.append({
-            "title": title,
-            "url": url,
-            "snippet": text[:400],
-            "body": text,
-            "published": pub,
+        items.append({
+            "title": item.get("title", "") or "",
+            "url": item.get("url", "") or "",
+            "publishedDate": item.get("publishedDate") or item.get("published_date") or "",
+            "text": (item.get("text") or item.get("snippet") or "")[:_MAX_TEXT_CHARS],
         })
+    raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
 
-    raw = RESULTS_SEPARATOR.join(blocks)
-    filtered, filter_debug = await filter_results(raw, cutoff_date, question=question)
-    if filtered != raw:
-        kept_urls = set()
-        for part in filtered.split(RESULTS_SEPARATOR):
-            for line in part.splitlines():
-                if line.startswith("http"):
-                    kept_urls.add(line.strip())
-                    break
-        if kept_urls:
-            parsed = [p for p in parsed if p.get("url") in kept_urls]
-        else:
-            parsed = []
-        raw = filtered
-    return raw, parsed, filter_debug
+
+# ------------------------------------------------------------- AgentCore
+
+def _parse_agentcore_payload(content_blocks: Any) -> list[dict]:
+    """Extract result dicts from MCP tools/call content."""
+    if content_blocks is None:
+        return []
+    texts: list[str] = []
+    if isinstance(content_blocks, str):
+        texts = [content_blocks]
+    elif isinstance(content_blocks, list):
+        for block in content_blocks:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and block.get("text"):
+                    texts.append(str(block["text"]))
+                elif "text" in block:
+                    texts.append(str(block["text"]))
+            else:
+                # mcp SDK TextContent
+                t = getattr(block, "text", None)
+                if t:
+                    texts.append(str(t))
+    elif isinstance(content_blocks, dict) and content_blocks.get("text"):
+        texts = [str(content_blocks["text"])]
+
+    items: list[dict] = []
+    for text in texts:
+        text = text.strip()
+        if not text:
+            continue
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Fallback: treat as a single snippet
+            items.append({"title": "", "url": "", "text": text[:_MAX_TEXT_CHARS], "publishedDate": ""})
+            continue
+        if isinstance(data, dict) and isinstance(data.get("results"), list):
+            for r in data["results"]:
+                if isinstance(r, dict):
+                    items.append(r)
+        elif isinstance(data, list):
+            items.extend(r for r in data if isinstance(r, dict))
+        elif isinstance(data, dict):
+            items.append(data)
+    return items
+
+
+async def _agentcore_call_tool(query: str, max_results: int) -> list[dict]:
+    """Invoke WebSearch on the AgentCore Gateway via SigV4 MCP."""
+    from mcp import ClientSession
+    from mcp_proxy_for_aws.client import aws_iam_streamablehttp_client
+
+    endpoint = agentcore_gateway_url()
+    if not endpoint:
+        raise ValueError(
+            "AGENTCORE_GATEWAY_URL or AGENTCORE_GATEWAY_ID required for "
+            "PF_SEARCH_BACKEND=agentcore"
+        )
+    region = agentcore_region()
+
+    async with aws_iam_streamablehttp_client(
+        endpoint=endpoint,
+        aws_service="bedrock-agentcore",
+        aws_region=region,
+        timeout=45.0,
+    ) as streams:
+        read, write, _get_session_id = streams
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            tool_names = [t.name for t in (tools.tools or [])]
+            name = next((n for n in _AGENTCORE_TOOL_NAMES if n in tool_names), None)
+            if name is None:
+                # fuzzy: any tool with 'search' in the name
+                name = next((n for n in tool_names if "search" in n.lower()), None)
+            if name is None:
+                raise RuntimeError(
+                    f"No WebSearch tool on AgentCore gateway; available={tool_names}"
+                )
+            result = await session.call_tool(
+                name,
+                arguments={"query": query, "maxResults": int(max_results)},
+            )
+            if getattr(result, "isError", False):
+                err_txt = ""
+                for block in result.content or []:
+                    err_txt += getattr(block, "text", "") or str(block)
+                raise RuntimeError(f"AgentCore WebSearch error: {err_txt[:500]}")
+            return _parse_agentcore_payload(result.content)
+
+
+async def search_agentcore(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Amazon Bedrock AgentCore Web Search (us-east-1 Gateway MCP)."""
+    # AgentCore query max is 200 chars
+    q = _sanitize_query(query, max_chars=200)
+    if not q:
+        raise ValueError("query empty after sanitization")
+    k = max(1, min(int(num_results), 25))
+
+    items = await _agentcore_call_tool(q, k)
+    raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
+
+
+# -------------------------------------------------------------- dispatcher
+
+async def web_search(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Dispatch to the configured search backend."""
+    backend = search_backend()
+    if backend == "none":
+        raise ValueError(
+            "No search backend configured. Set PF_SEARCH_BACKEND=tavily|exa|agentcore "
+            "and the matching credentials (TAVILY_API_KEY, EXA_API_KEY, or AGENTCORE_GATEWAY_URL)."
+        )
+    if backend == "tavily":
+        return await search_tavily(
+            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
+        )
+    if backend == "agentcore":
+        return await search_agentcore(
+            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
+        )
+    if backend == "exa":
+        return await search_exa(
+            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
+        )
+    raise ValueError(f"Unknown PF_SEARCH_BACKEND={backend!r}")
 
 
 async def fetch_url_text(url: str, *, max_chars: int = 8000) -> str:
     """Fetch a URL and strip HTML tags naively. Raises on HTTP errors."""
-    import re
-
     async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
         r = await client.get(url, headers={"User-Agent": "PrimeForecast/0.1 (research bot)"})
         r.raise_for_status()

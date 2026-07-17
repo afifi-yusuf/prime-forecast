@@ -17,7 +17,7 @@ enable_thinking = true
 
 [[env]]
 id = "yafifi/prime-forecast"
-args = { split = "train", max_turns = 8 }
+args = { split = "train", max_turns = 8, max_web_searches = 2 }
 
 [[pre_batch_filters]]
 type = "zero_advantage"

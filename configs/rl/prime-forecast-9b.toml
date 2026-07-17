@@ -15,7 +15,7 @@ enable_thinking = false  # keep the smoke run cheap; thinking on for the 35B run
 
 [[env]]
 id = "yafifi/prime-forecast"
-args = { split = "train", max_turns = 8 }
+args = { split = "train", max_turns = 8, max_web_searches = 2 }
 
 # Dead-group guard: drop zero-advantage rollout groups (crowd-price copying /
 # uniform rewards were the main haruspex failure mode).

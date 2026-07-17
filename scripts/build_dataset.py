@@ -10,16 +10,17 @@ offset-pagination cap (~2100 rows) fixed: events are harvested in sliding
 end-date windows (end_date_min/end_date_max), each window paginated with
 offsets that stay under the cap; windows that still overflow are subdivided.
 
-Filters (defaults):
+Filters (defaults, v2):
   - closed/resolved binary YES/NO markets
-  - cutoff 7 days before close/resolution (midpoint fallback for short markets)
+  - cutoff ~14 days before resolution; reject if realized horizon < 5 days
   - cutoff price in [0.10, 0.90], volume >= 5000
   - temporal eligibility: resolution after the Qwen3.5 release window
-  - sports/pop-culture excluded unless --include-sports/--include-popculture
+  - sports/esports/pop-culture excluded unless explicitly included
+  - category caps (esp. crypto/weather) + question-text dedupe
   - temporal train/val/test split by resolution date (no cross-time leakage)
 
 Example:
-  python scripts/build_dataset.py --target-total 4000 --out-dir data --install
+  python scripts/build_dataset.py --target-total 5000 --out-dir data --install
 """
 
 from __future__ import annotations
@@ -53,12 +54,17 @@ SPORT_TERMS = {
     "baseball", "hockey", "tennis", "golf", "fifa", "premier league",
     "champions league", "laliga", "serie a", "bundesliga", "cricket", "wnba",
     "ncaa", "nascar", "formula 1", "f1", "wrestlemania", "super bowl",
+    # esports / gaming (same leakage profile as sports)
+    "esports", "e-sports", "lol ", "league of legends", "dota", "csgo", "cs2",
+    "valorant", "overwatch", "call of duty", "world cup of", "playoffs",
 }
 
 POPCULTURE_TERMS = {
     "grammy", "oscars", "academy awards", "billboard", "box office", "netflix",
     "taylor swift", "drake", "kendrick", "celebrity", "movie", "album",
     "song", "youtube", "twitter", "x post", "instagram",
+    # high-template / low-signal celebrity markets
+    "elon musk", "musk post", "musk tweet", "will musk", "elon tweet",
 }
 
 CATEGORY_RULES: list[tuple[str, tuple[str, ...]]] = [
@@ -107,7 +113,7 @@ class Candidate:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Build prime-forecast dataset from Polymarket")
     p.add_argument("--out-dir", default="data")
-    p.add_argument("--target-total", type=int, default=4000)
+    p.add_argument("--target-total", type=int, default=5000)
     p.add_argument("--page-size", type=int, default=100)
     p.add_argument("--max-offset", type=int, default=2000,
                    help="Gamma offset pagination cap per window (hard API limit ~2100).")
@@ -118,7 +124,10 @@ def parse_args() -> argparse.Namespace:
                         "Empty disables.")
     p.add_argument("--eligible-before", default="",
                    help="Only markets resolving before this date (default: now).")
-    p.add_argument("--horizon-days", type=float, default=7.0)
+    p.add_argument("--horizon-days", type=float, default=14.0,
+                   help="Preferred cutoff = resolution - this many days.")
+    p.add_argument("--min-horizon-days", type=float, default=5.0,
+                   help="Reject rows whose (resolution - cutoff) is shorter than this.")
     p.add_argument("--min-before-resolution-hours", type=float, default=24.0)
     p.add_argument("--min-after-start-hours", type=float, default=24.0)
     p.add_argument("--price-window-days", type=float, default=7.0)
@@ -127,8 +136,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-volume", type=float, default=5000.0)
     p.add_argument("--include-sports", action="store_true")
     p.add_argument("--include-popculture", action="store_true")
-    p.add_argument("--max-sports-frac", type=float, default=0.10)
-    p.add_argument("--max-category-frac", type=float, default=0.35)
+    p.add_argument("--max-sports-frac", type=float, default=0.05)
+    p.add_argument("--max-category-frac", type=float, default=0.22,
+                   help="Hard cap on any single category share of the selected set.")
+    p.add_argument("--max-crypto-frac", type=float, default=0.18)
+    p.add_argument("--max-weather-frac", type=float, default=0.08)
     p.add_argument("--train-frac", type=float, default=0.80)
     p.add_argument("--val-frac", type=float, default=0.10)
     p.add_argument("--fetch-prices", action=argparse.BooleanOptionalAction, default=True)
@@ -489,6 +501,12 @@ def build_row(
     if cutoff is None:
         return None, cutoff_policy
 
+    # Realized forecast horizon (resolution - cutoff) must clear the floor.
+    # Drops midpoint_fallback rows that are still only a day or two out.
+    horizon_realized_days = (resolution_at - cutoff).total_seconds() / 86400.0
+    if horizon_realized_days < float(args.min_horizon_days):
+        return None, "horizon_too_short"
+
     market_id = str(first_present(market, ("id", "conditionId", "condition_id")) or "")
     condition_id = str(first_present(market, ("conditionId", "condition_id")) or "")
     slug = str(first_present(market, ("slug",)) or first_present(event, ("slug",)) or market_id)
@@ -512,6 +530,7 @@ def build_row(
         "cutoff_date": iso(cutoff),
         "resolution_date": iso(resolution_at),
         "created_at": iso(created_at),
+        "horizon_days": round(horizon_realized_days, 3),
         "outcome": int(outcome),
         "market_type": "binary",
         "outcomes": outcomes,
@@ -548,6 +567,13 @@ def attach_price(row: dict[str, Any], args: argparse.Namespace) -> str:
     return "accepted"
 
 
+def normalize_question(question: str) -> str:
+    """Lowercase, collapse whitespace, strip trailing punctuation — for dedupe."""
+    q = re.sub(r"\s+", " ", (question or "").strip().lower())
+    q = re.sub(r"[?!.]+$", "", q).strip()
+    return q
+
+
 class BalancedSelector:
     """Incremental category-capped selection (highest-volume first)."""
 
@@ -557,12 +583,21 @@ class BalancedSelector:
         self.counts: Counter[str] = Counter()
         self.sports_cap = int(args.target_total * args.max_sports_frac)
         self.category_cap = max(1, int(args.target_total * args.max_category_frac))
+        self.crypto_cap = max(1, int(args.target_total * args.max_crypto_frac))
+        self.weather_cap = max(1, int(args.target_total * args.max_weather_frac))
+
+    def _cap_for(self, cat: str) -> int:
+        if cat == "sports":
+            return self.sports_cap
+        if cat == "crypto_finance":
+            return min(self.category_cap, self.crypto_cap)
+        if cat == "weather_climate":
+            return min(self.category_cap, self.weather_cap)
+        return self.category_cap
 
     def wants(self, row: dict[str, Any]) -> bool:
         cat = row["category"]
-        if cat == "sports" and self.counts[cat] >= self.sports_cap:
-            return False
-        return self.counts[cat] < self.category_cap
+        return self.counts[cat] < self._cap_for(cat)
 
     def add(self, row: dict[str, Any]) -> None:
         self.selected.append(row)
@@ -601,6 +636,7 @@ def main() -> None:
     candidates: list[Candidate] = []
     reject_counts: Counter[str] = Counter()
     seen_market_ids: set[str] = set()
+    seen_questions: set[str] = set()
     scanned_events = 0
     scanned_markets = 0
 
@@ -616,9 +652,20 @@ def main() -> None:
             if key in seen_market_ids:
                 reject_counts["duplicate_market"] += 1
                 continue
+            qkey = normalize_question(str(row.get("question") or ""))
+            if qkey and qkey in seen_questions:
+                reject_counts["duplicate_question"] += 1
+                continue
             seen_market_ids.add(key)
+            if qkey:
+                seen_questions.add(qkey)
             volume = as_float(row.get("volume")) or 0.0
-            candidates.append(Candidate(row=row, sort_key=(math.log1p(volume), str(row["cutoff_date"]))))
+            # Prefer longer-horizon, high-volume markets when ranking candidates.
+            horizon = as_float(row.get("horizon_days")) or 0.0
+            candidates.append(Candidate(
+                row=row,
+                sort_key=(horizon, math.log1p(volume), str(row["cutoff_date"])),
+            ))
 
         if scanned_events % 200 == 0:
             print(
@@ -676,6 +723,10 @@ def main() -> None:
         "outcomes": dict(Counter(r["outcome"] for r in selected)),
         "splits": dict(Counter(r["split"] for r in selected)),
         "cutoff_policy": dict(Counter(r["cutoff_policy"] for r in selected)),
+        "horizon_days_median": (
+            sorted(as_float(r.get("horizon_days")) or 0.0 for r in selected)[len(selected) // 2]
+            if selected else None
+        ),
         "rejects": dict(reject_counts),
     }
     print(json.dumps(summary, indent=2, default=str))

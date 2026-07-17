@@ -6,6 +6,7 @@ from prime_forecast.belief import BeliefState
 from prime_forecast.env import (
     MAX_PROB,
     MIN_PROB,
+    NO_SUBMIT_REWARD,
     brier_score,
     extract_probability,
     forecast_reward,
@@ -32,16 +33,20 @@ async def test_forecast_reward_perfect_and_worst():
 
 
 @pytest.mark.asyncio
-async def test_forecast_reward_zero_without_submission():
-    assert await forecast_reward(_state(None), _info(1)) == 0.0
+async def test_forecast_reward_soft_no_submit():
+    # Soft no-submit matches always-0.5 so RL is not forced to spam mid-probs.
+    assert await forecast_reward(_state(None), _info(1)) == pytest.approx(NO_SUBMIT_REWARD)
+    assert await forecast_reward(_state(None), _info(0)) == pytest.approx(NO_SUBMIT_REWARD)
+    assert NO_SUBMIT_REWARD == pytest.approx(0.75)
 
 
 @pytest.mark.asyncio
-async def test_reward_band_beats_no_submit():
-    # Even the worst valid submission beats never submitting? No — but a 0.5
-    # baseline must land well inside the 5-80% band Hosted Training expects.
+async def test_reward_band_always_half():
     r = await forecast_reward(_state(0.5), _info(1))
-    assert 0.05 < r < 0.80 or r == pytest.approx(0.75)
+    assert r == pytest.approx(0.75)
+    # Sharp correct beats soft no-submit; sharp wrong loses.
+    assert await forecast_reward(_state(0.9), _info(1)) > NO_SUBMIT_REWARD
+    assert await forecast_reward(_state(0.1), _info(1)) < NO_SUBMIT_REWARD
 
 
 @pytest.mark.asyncio

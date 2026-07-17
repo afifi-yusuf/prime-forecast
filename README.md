@@ -34,22 +34,32 @@ uv tool install prime
 # 2. Run tests
 .venv/bin/python -m pytest tests/ -q
 
-# 3. Local eval against a cheap model (needs EXA_API_KEY; AWS creds for leak filter)
-cp secrets.env.example secrets.env  # fill in
+# 3. Search + secrets (AgentCore Web Search recommended; Exa optional)
+cp secrets.env.example secrets.env
+# Create AgentCore Gateway (us-east-1; needs IAM keys, not Bedrock bearer alone):
+.venv/bin/python scripts/setup_agentcore_search.py
+# Paste AGENTCORE_GATEWAY_URL into secrets.env and set PF_SEARCH_BACKEND=agentcore
+
+# 4. Local eval (AWS IAM for AgentCore + Bedrock leak filter)
 prime eval run prime-forecast -m openai/gpt-4.1-mini -n 10
 
-# 4. Smoke train, then the main run (Hosted Training, private beta)
+# 5. Smoke train, then the main run (Hosted Training, private beta)
 prime train submit configs/rl/prime-forecast-9b.toml
 prime train submit configs/rl/prime-forecast-35b.toml
 
-# 5. Deploy the adapter
+# 6. Deploy the adapter
 prime train download <job-id> --output checkpoints/
 prime deployments create <adapter-id>
 ```
 
+## Web search
+
+Backends via `PF_SEARCH_BACKEND`: **`tavily`** (free tier; good for local eval), **`agentcore`** (AWS, us-east-1, ~$7/1k; needs IAM gateway), **`exa`**. RL configs set `max_web_searches=2` to cap spend.
+
+
 ## Reward
 
-`reward = 1 - (p - y)^2` (positive-shifted Brier; 0.75 for an always-0.5 baseline, 0 on missing submission) + 0.05 × BLF protocol bonus. `market_brier` (crowd price at cutoff) is tracked as an eval-only baseline — the agent cannot see the crowd price unless `include_market_tools=true`.
+`reward = 1 - (p - y)^2` (positive-shifted Brier). Missing submission scores **0.75** (same as always predicting 0.5) so RL is not forced to spam mid-probability submits. Optional BLF protocol bonus defaults to **off** (`protocol_bonus_weight=0`). `market_brier` (crowd price at cutoff) is an eval-only baseline — the agent cannot see it unless `include_market_tools=true`.
 
 ## Leakage controls
 

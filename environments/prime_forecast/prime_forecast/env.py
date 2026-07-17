@@ -2,7 +2,7 @@
 
 The agent researches a resolved Polymarket question via live, cutoff-safe
 tools and submits P(YES). Reward is positive-shifted Brier vs the outcome:
-    reward = 1 - (p - y)^2      (0 when the agent never submits)
+    reward = 1 - (p - y)^2      (0.75 soft no-submit = always-0.5 baseline)
 
 Crowd-price tools are excluded by default (include_market_tools=False):
 haruspex GRPO runs showed rollouts collapsing onto the crowd price, producing
@@ -31,6 +31,9 @@ from prime_forecast import datatools, polymarket, prompts, search
 
 MIN_PROB = 0.05
 MAX_PROB = 0.95
+# Soft no-submit: same reward as always predicting 0.5 under Brier.
+# Hard 0 forced models to spam submit ~0.5 (smoke-run collapse).
+NO_SUBMIT_REWARD = 0.75
 
 _PROB_TAG_RE = re.compile(r"<probability>\s*([01]?\.?\d+)\s*</probability>", re.IGNORECASE)
 
@@ -83,17 +86,26 @@ def _parse_info(info) -> dict:
 # ------------------------------------------------------------------ rewards
 
 async def forecast_reward(state: vf.State, info) -> float:
-    """Main reward: positive-shifted Brier, 0 on missing submission."""
+    """Main reward: positive-shifted Brier; soft no-submit (= always-0.5).
+
+    r = 1 - (p - y)^2 when a probability is produced; NO_SUBMIT_REWARD (0.75)
+    when missing. Matches the always-0.5 baseline so RL is not forced to spam
+    mid-probability submits (Mantic / Turtel use proper scores on valid p̂).
+    """
     p = extract_probability(state)
     if p is None:
-        return 0.0
+        return NO_SUBMIT_REWARD
     meta = _parse_info(info)
     y = 1.0 if int(meta.get("outcome", 0)) == 1 else 0.0
     return 1.0 - (p - y) ** 2
 
 
 async def protocol_bonus(state: vf.State) -> float:
-    """BLF protocol shaping (small weight): hard-to-game trajectory invariants."""
+    """Optional BLF protocol shaping (off by default; weight 0.0).
+
+    Kept for ablations. Smoke runs showed it encouraged web_search→submit
+    collapse without improving calibration.
+    """
     belief: BeliefState | None = state.get("belief")
     checks = [
         bool(state.get("submitted")),                       # explicit submit call
@@ -154,10 +166,12 @@ class ForecastEnv(vf.StatefulToolEnv):
         *,
         include_market_tools: bool = False,
         max_turns: int = 8,
+        max_web_searches: int = 2,
         **kwargs,
     ):
         super().__init__(tools=None, max_turns=max_turns, **kwargs)
         self.include_market_tools = include_market_tools
+        self.max_web_searches = max(0, int(max_web_searches))
 
         self.add_tool(self.web_search, args_to_skip=["state"])
         self.add_tool(self.summarize_results, args_to_skip=["state"])
@@ -196,6 +210,7 @@ class ForecastEnv(vf.StatefulToolEnv):
         state["submitted"] = False
         state["submitted_prob"] = None
         state["research_tool_calls"] = 0
+        state["web_search_calls"] = 0
         await super().setup_state(state)
         return state
 
@@ -249,28 +264,43 @@ class ForecastEnv(vf.StatefulToolEnv):
         self, query: str, num_results: int = 10,
         updated_belief: BeliefUpdate | None = None, state: dict | None = None,
     ) -> str:
-        """Search the pre-cutoff web via Exa. Post-cutoff results are filtered automatically.
+        """Search the pre-cutoff web. Post-cutoff results are filtered automatically.
+
+        Backend is selected by PF_SEARCH_BACKEND (tavily | exa | agentcore). Each
+        rollout is limited to max_web_searches calls to control API spend.
 
         Args:
             query: Search query. Avoid outcome words (result, resolved, final, won, lost).
-            num_results: Number of results to return (max 20).
+            num_results: Number of results to return (max 20; AgentCore caps at 25).
             updated_belief: Your updated belief state (p, confidence, update_reasoning, evidence_for, evidence_against, key_uncertainties).
 
         Returns:
             JSON with search_index, result snippets, and your current belief state.
         """
         ctx = state["ctx"]
+        used = int(state.get("web_search_calls", 0))
+        if used >= self.max_web_searches:
+            return json.dumps({
+                "error": (
+                    f"web_search budget exhausted ({self.max_web_searches} per rollout). "
+                    "Call summarize_results on earlier hits, use data tools, or submit."
+                ),
+                "web_search_calls": used,
+                "max_web_searches": self.max_web_searches,
+                "belief": self._belief_payload(state),
+            })
         q = sanitize_search_query(str(query or ""))
         if not q:
             return json.dumps({"error": "query empty after sanitization"})
         try:
-            raw, parsed, _debug = await search.search_exa(
+            raw, parsed, _debug = await search.web_search(
                 q, cutoff_date=ctx["cutoff_date"],
                 num_results=int(num_results), question=ctx["question"],
             )
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 
+        state["web_search_calls"] = used + 1
         results = [
             SearchResult(index=i, title=p["title"], url=p["url"],
                          snippet=p.get("snippet", ""), body=p.get("body", ""))
@@ -283,11 +313,15 @@ class ForecastEnv(vf.StatefulToolEnv):
         if q not in belief.searches_tried:
             belief.searches_tried.append(q)
 
+        remaining = self.max_web_searches - state["web_search_calls"]
         return json.dumps({
             "search_index": search_index,
             "query": q,
+            "backend": search.search_backend(),
             "num_results": len(results),
             "results": [r.to_snippet_dict() for r in results],
+            "web_search_calls": state["web_search_calls"],
+            "web_searches_remaining": remaining,
             "belief": self._belief_payload(state),
             "hint": "Call summarize_results on promising result indices to read full content.",
         }, default=str)
@@ -637,6 +671,39 @@ def _row_to_example(row: dict, *, max_turns: int) -> dict:
     }
 
 
+def _ensure_search_keys() -> None:
+    """Require credentials for the active search backend."""
+    import os
+
+    backend = search.search_backend()
+    if backend == "tavily":
+        vf.ensure_keys(["TAVILY_API_KEY"])
+    elif backend == "exa":
+        vf.ensure_keys(["EXA_API_KEY"])
+    elif backend == "agentcore":
+        if not search.agentcore_gateway_url():
+            raise ValueError(
+                "PF_SEARCH_BACKEND=agentcore requires AGENTCORE_GATEWAY_URL "
+                "or AGENTCORE_GATEWAY_ID (run scripts/setup_agentcore_search.py)"
+            )
+        # SigV4 needs an IAM credential chain. Bedrock bearer alone is not enough.
+        has_iam = bool(
+            os.environ.get("AWS_ACCESS_KEY_ID")
+            or os.environ.get("AWS_PROFILE")
+            or os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+            or os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+        )
+        if not has_iam:
+            raise ValueError(
+                "AgentCore Gateway requires IAM SigV4 credentials "
+                "(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or AWS_PROFILE). "
+                "AWS_BEARER_TOKEN_BEDROCK is only for Bedrock Runtime (leak filter)."
+            )
+    elif backend == "none":
+        # Allowed for offline unit tests that inject dataset_rows and mock tools.
+        pass
+
+
 def load_environment(
     dataset_path: str | None = None,
     split: str = "train",
@@ -644,8 +711,9 @@ def load_environment(
     num_examples: int = -1,
     num_eval_examples: int = -1,
     max_turns: int = 8,
+    max_web_searches: int = 2,
     include_market_tools: bool = False,
-    protocol_bonus_weight: float = 0.05,
+    protocol_bonus_weight: float = 0.0,
     dataset_rows: list[dict] | None = None,
     **kwargs: Any,
 ) -> vf.Environment:
@@ -659,11 +727,13 @@ def load_environment(
         num_examples: Truncate the training split (-1 = all).
         num_eval_examples: Truncate the eval split (-1 = all).
         max_turns: Maximum agent turns per rollout (BLF T_max).
+        max_web_searches: Cap live web_search calls per rollout (cost control).
         include_market_tools: Expose Polymarket crowd-price tools (off by default).
-        protocol_bonus_weight: Weight of the BLF protocol shaping bonus.
+        protocol_bonus_weight: Weight of optional BLF shaping (default 0 = off).
         dataset_rows: Inline rows (tests only) — bypasses file loading.
     """
-    vf.ensure_keys(["EXA_API_KEY"])
+    if dataset_rows is None:
+        _ensure_search_keys()
 
     if dataset_rows is not None:
         train_rows, eval_rows = dataset_rows, dataset_rows
@@ -704,6 +774,7 @@ def load_environment(
         rubric=rubric,
         system_prompt=system_prompt,
         max_turns=max_turns,
+        max_web_searches=max_web_searches,
         include_market_tools=include_market_tools,
         **kwargs,
     )

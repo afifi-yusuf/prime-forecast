@@ -1,4 +1,4 @@
-"""End-to-end rollout: scripted model calls web_search (mocked Exa) then submit.
+"""End-to-end rollout: scripted model calls web_search (mocked) then submit.
 
 Validates the full StatefulToolEnv loop offline: native tool dispatch, hidden
 state injection, belief merging, the submit stop condition, and rubric scoring.
@@ -74,7 +74,7 @@ class ScriptedOpenAI:
 async def test_full_rollout_and_scoring(sample_row, monkeypatch):
     from prime_forecast import search
 
-    async def fake_exa(query, *, cutoff_date, num_results=10, question=""):
+    async def fake_search(query, *, cutoff_date, num_results=10, question=""):
         parsed = [{
             "title": "Pre-cutoff preview",
             "url": "https://example.com/preview",
@@ -82,9 +82,9 @@ async def test_full_rollout_and_scoring(sample_row, monkeypatch):
             "body": "X looks likely per analysts",
             "published": "2026-04-20",
         }]
-        return "raw", parsed, {}
+        return "raw", parsed, {"mode": "mock"}
 
-    monkeypatch.setattr(search, "search_exa", fake_exa)
+    monkeypatch.setattr(search, "web_search", fake_search)
 
     env = load_environment(dataset_rows=[sample_row])
 
@@ -134,7 +134,9 @@ async def test_full_rollout_and_scoring(sample_row, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rollout_no_submit_scores_zero(sample_row):
+async def test_rollout_no_submit_soft_reward(sample_row):
+    from prime_forecast.env import NO_SUBMIT_REWARD
+
     env = load_environment(dataset_rows=[sample_row])
     turns = [ChatCompletionMessage(role="assistant", content="I refuse to use tools.")]
     client = OpenAIChatCompletionsClient(ScriptedOpenAI(turns))
@@ -146,7 +148,7 @@ async def test_rollout_no_submit_scores_zero(sample_row):
     }, client, model="scripted")
 
     assert state["submitted"] is False
-    assert await forecast_reward(state, row["info"]) == 0.0
+    assert await forecast_reward(state, row["info"]) == pytest.approx(NO_SUBMIT_REWARD)
 
 
 @pytest.mark.asyncio

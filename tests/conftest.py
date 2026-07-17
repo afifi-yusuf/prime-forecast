@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "environments" / "prime_forecast"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+os.environ.setdefault("PF_SEARCH_BACKEND", "none")  # unit tests mock search
 os.environ.setdefault("EXA_API_KEY", "test-key")
 os.environ.setdefault("PF_LLM_FILTER", "0")  # heuristic-only in unit tests
 
