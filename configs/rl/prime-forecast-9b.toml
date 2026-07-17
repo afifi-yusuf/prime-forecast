@@ -1,0 +1,39 @@
+# Smoke run: validate the full loop (secrets, live tools, reward curves) cheaply.
+# Submit with:  prime train run configs/rl/prime-forecast-9b.toml
+# Prereq: prime env push (from environments/prime_forecast) and update [[env]] id below.
+
+# Verify exact model id with `prime train models` (Qwen3.5 family) after login.
+model = "Qwen/Qwen3.5-9B"
+max_steps = 50
+batch_size = 64
+rollouts_per_example = 8
+env_file = ["secrets.env"]  # EXA_API_KEY + AWS Bedrock creds (+ FRED_API_KEY)
+
+[sampling]
+max_tokens = 4096
+enable_thinking = false  # keep the smoke run cheap; thinking on for the 35B run
+
+[[env]]
+id = "YOUR_HUB_USERNAME/prime-forecast"  # set after `prime env push`
+args = { split = "train", max_turns = 8 }
+
+# Dead-group guard: drop zero-advantage rollout groups (crowd-price copying /
+# uniform rewards were the main haruspex failure mode).
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[val]
+num_examples = 32
+rollouts_per_example = 1
+interval = 10
+
+[wandb]
+project = "prime-forecast"
+name = "9b-smoke"
+
+[checkpoints]
+interval = 25
+
+[adapters]
+interval = 0  # upload adapter at run end

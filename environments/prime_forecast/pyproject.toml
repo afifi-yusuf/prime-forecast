@@ -1,0 +1,29 @@
+[project]
+name = "prime-forecast"
+description = "Agentic forecasting RLVR: multi-turn tool-use agent predicts resolved Polymarket questions, rewarded on Brier score"
+tags = ["multi-turn", "tools", "forecasting", "train", "eval"]
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "verifiers>=0.2.0",
+    "datasets",
+    "httpx",
+    "boto3",
+    "yfinance",
+    "pandas",
+    "numpy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = ["prime_forecast/**", "pyproject.toml", "README.md"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["prime_forecast"]
+
+[tool.verifiers.eval]
+num_examples = 20
+rollouts_per_example = 4

@@ -1,0 +1,18 @@
+# Local evaluation config (verifiers [[eval]] schema).
+# Usage:
+#   set -a && source secrets.env && set +a
+#   prime eval run configs/eval/prime-forecast.toml --provider prime --plain --disable-tui
+# Or override model on the CLI:  -m Qwen/Qwen3.5-9B
+
+env_dir_path = "environments"
+provider = "prime"
+model = "openai/gpt-4.1-mini"
+num_examples = 20
+rollouts_per_example = 2
+max_concurrent = 8
+max_tokens = 4096
+save_results = true
+
+[[eval]]
+id = "prime-forecast"
+args = { split = "val", eval_split = "val", max_turns = 8 }

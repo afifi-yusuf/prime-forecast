@@ -1,0 +1,51 @@
+# Main run: Qwen3.5-35B-A3B with thinking, LoRA via Hosted Training.
+# Submit with:  prime train run configs/rl/prime-forecast-35b.toml
+# Prereq: 9B smoke run looks healthy (reward in 5-80% band, low parse-failure,
+# few zero-advantage drops) and Exa spend estimate is acceptable
+# (~batch_size * rollouts_per_example * ~3 searches per step).
+
+# Verify exact model id with `prime train models` (Qwen3.5 family) after login.
+model = "Qwen/Qwen3.5-35B-A3B"
+max_steps = 300
+batch_size = 128
+rollouts_per_example = 8
+env_file = ["secrets.env"]
+
+[sampling]
+max_tokens = 12288  # thinking + up to 8 tool turns
+enable_thinking = true
+
+[[env]]
+id = "YOUR_HUB_USERNAME/prime-forecast"  # set after `prime env push`
+args = { split = "train", max_turns = 8 }
+
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[val]
+num_examples = 64
+rollouts_per_example = 1
+interval = 20
+
+[eval]
+interval = 100
+skip_first_step = false  # baseline eval of the base model at step 0
+
+[[eval.env]]
+id = "YOUR_HUB_USERNAME/prime-forecast"
+args = { split = "val", eval_split = "val" }
+num_examples = 100
+rollouts_per_example = 2
+
+[wandb]
+project = "prime-forecast"
+name = "35b-main"
+
+[checkpoints]
+interval = 50
+keep_cloud = 5
+
+[adapters]
+interval = 100
+keep_last = 3
