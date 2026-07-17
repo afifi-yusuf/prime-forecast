@@ -6,8 +6,11 @@ the verifiers event loop unblocked.
 
 Env vars:
   PF_LLM_FILTER          — "1"/"true" enables the LLM filter+summarizer (default on
-                           when AWS credentials are present, off otherwise)
-  AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION — Bedrock credentials
+                           when Bedrock credentials are present, off otherwise)
+  BEDROCK_API_KEY        — short/long-term Bedrock API key (preferred; mapped to
+                           AWS_BEARER_TOKEN_BEDROCK for boto3)
+  AWS_BEARER_TOKEN_BEDROCK — official boto3 bearer-token env var (also accepted)
+  AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION — IAM fallback
   PF_FILTER_MODEL        — filter model id (default Claude Haiku 4.5)
   PF_SUMMARIZE_MODEL     — summarizer model id (default Nova 2 Lite)
 """
@@ -17,11 +20,26 @@ from __future__ import annotations
 import asyncio
 import os
 
-_DEFAULT_REGION = "us-west-2"
+_DEFAULT_REGION = "us-east-1"
 _DEFAULT_FILTER = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _DEFAULT_SUMMARIZE = "us.amazon.nova-2-lite-v1:0"
 
 _client = None
+
+
+def _bedrock_api_key() -> str:
+    """Return a Bedrock bearer API key if configured."""
+    return (
+        os.environ.get("BEDROCK_API_KEY", "").strip()
+        or os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+    )
+
+
+def _ensure_bearer_env() -> None:
+    """Map BEDROCK_API_KEY → AWS_BEARER_TOKEN_BEDROCK so boto3 picks it up."""
+    key = _bedrock_api_key()
+    if key and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip():
+        os.environ["AWS_BEARER_TOKEN_BEDROCK"] = key
 
 
 def llm_enabled() -> bool:
@@ -30,8 +48,12 @@ def llm_enabled() -> bool:
         return True
     if raw in ("0", "false", "no"):
         return False
-    # Auto: enabled when AWS credentials are discoverable via env.
-    return bool(os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE"))
+    # Auto: enabled when a Bedrock API key or IAM credentials are present.
+    return bool(
+        _bedrock_api_key()
+        or os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("AWS_PROFILE")
+    )
 
 
 def bedrock_region() -> str:
@@ -53,6 +75,7 @@ def _get_client():
     import boto3
     from botocore.config import Config
 
+    _ensure_bearer_env()
     config = Config(
         read_timeout=90,
         connect_timeout=10,
