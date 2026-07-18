@@ -4,10 +4,10 @@ The agent researches a resolved Polymarket question via live, cutoff-safe
 tools and submits P(YES). Reward is positive-shifted Brier vs the outcome:
     reward = 1 - (p - y)^2      (0.75 soft no-submit = always-0.5 baseline)
 
-Crowd-price tools are excluded by default (include_market_tools=False):
-haruspex GRPO runs showed rollouts collapsing onto the crowd price, producing
-zero-variance advantage groups. The market price stays in `info` as an
-eval-only baseline metric.
+Crowd-price tools (cutoff-safe CLOB history + dataset volume) are on by default.
+Treat the crowd as a prior; zero-advantage groups are handled by the
+zero_advantage pre-batch filter. Live Gamma payloads are never returned —
+they contain resolution/winner fields.
 """
 
 import json
@@ -21,7 +21,6 @@ from datasets import Dataset
 from prime_forecast.belief import BeliefState, BeliefUpdate, SearchResult, SearchStore
 from prime_forecast.cutoff import find_dates_after, parse_ts
 from prime_forecast.leak_filter import (
-    RESULTS_SEPARATOR,
     domain_blocked,
     filter_page_content,
     sanitize_search_query,
@@ -153,10 +152,10 @@ async def predicted_prob(state: vf.State) -> float:
 # -------------------------------------------------------------- environment
 
 _RESEARCH_TOOLS = frozenset({
-    "web_search", "summarize_results", "lookup_url", "fetch_ts_yfinance",
+    "web_search", "lookup_url", "fetch_ts_yfinance",
     "fetch_fred_series", "fetch_ts_dbnomics", "fetch_wikipedia_toc",
-    "fetch_wikipedia_section", "analyze_trend", "polymarket_search",
-    "polymarket_market_price", "polymarket_price_history",
+    "fetch_wikipedia_section", "analyze_trend", "polymarket_get_market",
+    "polymarket_search", "polymarket_market_price", "polymarket_price_history",
 })
 
 
@@ -164,7 +163,7 @@ class ForecastEnv(vf.StatefulToolEnv):
     def __init__(
         self,
         *,
-        include_market_tools: bool = False,
+        include_market_tools: bool = True,
         max_turns: int = 8,
         max_web_searches: int = 2,
         **kwargs,
@@ -174,7 +173,6 @@ class ForecastEnv(vf.StatefulToolEnv):
         self.max_web_searches = max(0, int(max_web_searches))
 
         self.add_tool(self.web_search, args_to_skip=["state"])
-        self.add_tool(self.summarize_results, args_to_skip=["state"])
         self.add_tool(self.lookup_url, args_to_skip=["state"])
         self.add_tool(self.fetch_ts_yfinance, args_to_skip=["state"])
         self.add_tool(self.fetch_fred_series, args_to_skip=["state"])
@@ -204,6 +202,7 @@ class ForecastEnv(vf.StatefulToolEnv):
             "token_id": meta.get("token_id"),
             "category": meta.get("category"),
             "price_at_cutoff": meta.get("price_at_cutoff"),
+            "volume": meta.get("volume"),
         }
         state["belief"] = BeliefState()
         state["store"] = SearchStore()
@@ -266,8 +265,8 @@ class ForecastEnv(vf.StatefulToolEnv):
     ) -> str:
         """Search the pre-cutoff web. Post-cutoff results are filtered automatically.
 
-        Backend is selected by PF_SEARCH_BACKEND (tavily | exa | agentcore). Each
-        rollout is limited to max_web_searches calls to control API spend.
+        Backend is selected by PF_SEARCH_BACKEND (brave | tavily | exa | agentcore).
+        Each rollout is limited to max_web_searches calls to control API spend.
 
         Args:
             query: Search query. Avoid outcome words (result, resolved, final, won, lost).
@@ -283,7 +282,7 @@ class ForecastEnv(vf.StatefulToolEnv):
             return json.dumps({
                 "error": (
                     f"web_search budget exhausted ({self.max_web_searches} per rollout). "
-                    "Call summarize_results on earlier hits, use data tools, or submit."
+                    "Call lookup_url on promising hit URLs, use data/market tools, or submit."
                 ),
                 "web_search_calls": used,
                 "max_web_searches": self.max_web_searches,
@@ -323,46 +322,7 @@ class ForecastEnv(vf.StatefulToolEnv):
             "web_search_calls": state["web_search_calls"],
             "web_searches_remaining": remaining,
             "belief": self._belief_payload(state),
-            "hint": "Call summarize_results on promising result indices to read full content.",
-        }, default=str)
-
-    async def summarize_results(
-        self, search_index: int, result_indices: list[int],
-        updated_belief: BeliefUpdate | None = None, state: dict | None = None,
-    ) -> str:
-        """Read and summarize the full content of selected web_search results.
-
-        Args:
-            search_index: The search_index returned by a previous web_search call.
-            result_indices: Indices of the results to read (from that search).
-            updated_belief: Your updated belief state.
-
-        Returns:
-            JSON with a leak-filtered summary of the selected pages.
-        """
-        ctx = state["ctx"]
-        indices = result_indices if isinstance(result_indices, list) else [result_indices]
-        indices = [int(i) for i in indices]
-        store: SearchStore = state["store"]
-        picked = store.get_results(int(search_index), indices)
-        if not picked:
-            return json.dumps({
-                "error": f"no results for search_index={search_index} indices={indices}"})
-
-        raw = RESULTS_SEPARATOR.join(
-            f"{r.title}\n{r.url}\n{r.body or r.snippet}" for r in picked
-        )
-        summary, _debug = await blf_summarize(
-            raw,
-            question=ctx["question"],
-            cutoff_date=ctx["cutoff_date"],
-            resolution_criteria=ctx.get("resolution_criteria") or "",
-        )
-        return json.dumps({
-            "search_index": int(search_index),
-            "result_indices": indices,
-            "summary": summary,
-            "belief": self._belief_payload(state),
+            "hint": "Call lookup_url on a promising result URL to read the full page.",
         }, default=str)
 
     async def lookup_url(
@@ -546,13 +506,13 @@ class ForecastEnv(vf.StatefulToolEnv):
     async def polymarket_get_market(
         self, updated_belief: BeliefUpdate | None = None, state: dict | None = None,
     ) -> str:
-        """Get cutoff-safe metadata for this episode's market.
+        """Get cutoff-safe metadata for this episode's market (id, volume, criteria).
 
         Args:
             updated_belief: Your updated belief state.
 
         Returns:
-            JSON with static contract identity (no prices, no resolution status).
+            JSON with static contract identity + dataset volume (no live resolution).
         """
         return await polymarket.get_market_metadata(state["ctx"])
 
@@ -664,6 +624,7 @@ def _row_to_example(row: dict, *, max_turns: int) -> dict:
         "category": row.get("category"),
         "question": row.get("question"),
         "resolution_criteria": row.get("resolution_criteria"),
+        "volume": row.get("volume"),
     }
     return {
         "prompt": [{"role": "user", "content": prompts.seed_user_message(row, max_turns=max_turns)}],
@@ -676,7 +637,9 @@ def _ensure_search_keys() -> None:
     import os
 
     backend = search.search_backend()
-    if backend == "tavily":
+    if backend == "brave":
+        vf.ensure_keys(["BRAVE_API_KEY"])
+    elif backend == "tavily":
         vf.ensure_keys(["TAVILY_API_KEY"])
     elif backend == "exa":
         vf.ensure_keys(["EXA_API_KEY"])
@@ -712,7 +675,7 @@ def load_environment(
     num_eval_examples: int = -1,
     max_turns: int = 8,
     max_web_searches: int = 2,
-    include_market_tools: bool = False,
+    include_market_tools: bool = True,
     protocol_bonus_weight: float = 0.0,
     dataset_rows: list[dict] | None = None,
     **kwargs: Any,
@@ -728,7 +691,7 @@ def load_environment(
         num_eval_examples: Truncate the eval split (-1 = all).
         max_turns: Maximum agent turns per rollout (BLF T_max).
         max_web_searches: Cap live web_search calls per rollout (cost control).
-        include_market_tools: Expose Polymarket crowd-price tools (off by default).
+        include_market_tools: Expose Polymarket crowd-price/history tools (on by default).
         protocol_bonus_weight: Weight of optional BLF shaping (default 0 = off).
         dataset_rows: Inline rows (tests only) — bypasses file loading.
     """

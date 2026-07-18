@@ -30,15 +30,19 @@ Belief update rules (required on every tool call):
 
 Strategy (Bayesian Linguistic Forecaster):
 1. Start from a base rate for this kind of event, then research.
-2. web_search for pre-cutoff news about the exact event/entity in the question:
+2. Check the crowd prior when useful: polymarket_market_price and/or
+   polymarket_price_history (cutoff-safe). polymarket_get_market gives contract
+   metadata and traded volume (liquidity proxy) — not live orderbook depth.
+3. web_search for pre-cutoff news about the exact event/entity in the question:
    previews, status updates, expert analysis — never outcomes or results.
-3. Call summarize_results on promising hits to read full content.
-4. Use domain data tools (fetch_ts_yfinance, fetch_fred_series, fetch_ts_dbnomics,
+4. Call lookup_url on a promising result URL when you need the full page
+   (search already returns leak-filtered snippets).
+5. Use domain data tools (fetch_ts_yfinance, fetch_fred_series, fetch_ts_dbnomics,
    analyze_trend, fetch_wikipedia_toc/section) when the question involves a numeric
    threshold or factual background.
-5. Avoid resolution dates and outcome words in queries (result, resolved, final,
+6. Avoid resolution dates and outcome words in queries (result, resolved, final,
    won, lost); those return post-cutoff recaps that get filtered to zero hits.
-6. Do not repeat a search unless the first pass returned zero useful hits.
+7. Do not repeat a search unless the first pass returned zero useful hits.
 
 Finishing:
 - When your belief stabilizes, call submit(probability, reasoning, updated_belief={...}).
@@ -48,11 +52,15 @@ Finishing:
 
 
 MARKET_TOOLS_ADDENDUM = """
-Crowd price tools are available for this run:
-- polymarket_market_price / polymarket_price_history give the market's crowd
-  probability at the cutoff. Treat it as a prior, not the final answer — adjust
-  when exact-event evidence warrants it, and do not submit the crowd price
-  unchanged unless the evidence truly supports it."""
+Polymarket crowd tools (cutoff-safe; never live resolution status):
+- polymarket_get_market: contract metadata + traded volume for THIS market
+  (dataset volume = liquidity proxy; no live orderbook / bid-ask depth)
+- polymarket_market_price: YES implied probability at the cutoff
+- polymarket_price_history: YES price path up to the cutoff (summary + points)
+- polymarket_search: related markets by keyword (identity only — no volume/price)
+Treat the crowd price as a prior, not the final answer — adjust when
+exact-event evidence warrants it. Do not submit the crowd price unchanged
+unless the evidence truly supports it."""
 
 
 def seed_user_message(row: dict, *, max_turns: int) -> str:

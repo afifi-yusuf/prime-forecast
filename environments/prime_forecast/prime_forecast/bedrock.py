@@ -76,12 +76,21 @@ def _get_client():
     from botocore.config import Config
 
     _ensure_bearer_env()
-    config = Config(
-        read_timeout=90,
-        connect_timeout=10,
-        retries={"max_attempts": 2, "mode": "standard"},
-    )
-    _client = boto3.client("bedrock-runtime", region_name=bedrock_region(), config=config)
+    # Hosted Training often inherits a local AWS_PROFILE from env_file that does
+    # not exist in the container. Prefer the Bedrock bearer token when set.
+    saved_profile = None
+    if _bedrock_api_key() and os.environ.get("AWS_PROFILE"):
+        saved_profile = os.environ.pop("AWS_PROFILE")
+    try:
+        config = Config(
+            read_timeout=90,
+            connect_timeout=10,
+            retries={"max_attempts": 2, "mode": "standard"},
+        )
+        _client = boto3.client("bedrock-runtime", region_name=bedrock_region(), config=config)
+    finally:
+        if saved_profile is not None:
+            os.environ["AWS_PROFILE"] = saved_profile
     return _client
 
 

@@ -1,14 +1,15 @@
 {
-  "created_at": "2026-07-17T19:47:19.384759Z",
+  "created_at": "2026-07-17T22:22:44.986161Z",
   "args": {
     "out_dir": "data",
-    "target_total": 4000,
+    "target_total": 5000,
     "page_size": 100,
     "max_offset": 2000,
     "window_days": 3.0,
     "eligible_after": "2026-03-02",
     "eligible_before": "",
-    "horizon_days": 7.0,
+    "horizon_days": 14.0,
+    "min_horizon_days": 5.0,
     "min_before_resolution_hours": 24.0,
     "min_after_start_hours": 24.0,
     "price_window_days": 7.0,
@@ -17,52 +18,57 @@
     "min_volume": 5000.0,
     "include_sports": false,
     "include_popculture": false,
-    "max_sports_frac": 0.1,
-    "max_category_frac": 0.35,
+    "max_sports_frac": 0.05,
+    "max_category_frac": 0.22,
+    "max_crypto_frac": 0.18,
+    "max_weather_frac": 0.08,
     "train_frac": 0.8,
     "val_frac": 0.1,
     "fetch_prices": true,
-    "workers": 16,
+    "workers": 8,
     "sleep": 0.02,
     "install": true,
     "dry_run": false
   },
-  "scanned_events": 482875,
-  "scanned_markets": 1336362,
-  "candidates": 48521,
-  "selected": 4000,
+  "scanned_events": 483279,
+  "scanned_markets": 1337856,
+  "candidates": 6773,
+  "selected": 2482,
   "categories": {
-    "politics_policy": 771,
-    "crypto_finance": 1400,
-    "weather_climate": 1271,
-    "ai_tech": 427,
-    "other": 57,
-    "macro_economics": 25,
-    "geopolitics": 49
+    "politics_policy": 1100,
+    "crypto_finance": 839,
+    "macro_economics": 89,
+    "ai_tech": 253,
+    "weather_climate": 58,
+    "other": 80,
+    "geopolitics": 63
   },
   "outcomes": {
-    "1": 1667,
-    "0": 2333
+    "1": 1121,
+    "0": 1361
   },
   "splits": {
-    "train": 3200,
-    "val": 400,
-    "test": 400
+    "train": 1985,
+    "val": 248,
+    "test": 249
   },
   "cutoff_policy": {
-    "midpoint_fallback": 2755,
-    "horizon": 1245
+    "horizon": 1842,
+    "midpoint_fallback": 640
   },
+  "horizon_days_median": 14.0,
   "rejects": {
-    "low_volume": 185139,
-    "not_binary_yes_no": 835252,
-    "sports_excluded": 221590,
-    "too_short": 7073,
-    "popculture_excluded": 16059,
-    "duplicate_market": 12877,
-    "pre_eligible": 827,
-    "missing_outcome": 9024,
-    "extreme_price": 6627,
-    "missing_price_history": 31
+    "sports_excluded": 223842,
+    "not_binary_yes_no": 835853,
+    "low_volume": 184231,
+    "pre_eligible": 788,
+    "horizon_too_short": 49945,
+    "popculture_excluded": 18214,
+    "too_short": 7055,
+    "missing_outcome": 9029,
+    "duplicate_market": 2020,
+    "duplicate_question": 106,
+    "extreme_price": 4212,
+    "missing_price_history": 32
   }
 }

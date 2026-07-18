@@ -59,7 +59,7 @@ Backends via `PF_SEARCH_BACKEND`: **`tavily`** (free tier; good for local eval),
 
 ## Reward
 
-`reward = 1 - (p - y)^2` (positive-shifted Brier). Missing submission scores **0.75** (same as always predicting 0.5) so RL is not forced to spam mid-probability submits. Optional BLF protocol bonus defaults to **off** (`protocol_bonus_weight=0`). `market_brier` (crowd price at cutoff) is an eval-only baseline — the agent cannot see it unless `include_market_tools=true`.
+`reward = 1 - (p - y)^2` (positive-shifted Brier). Missing submission scores **0.75** (same as always predicting 0.5) so RL is not forced to spam mid-probability submits. Optional BLF protocol bonus defaults to **off** (`protocol_bonus_weight=0`). Cutoff-safe Polymarket crowd tools are on by default (`include_market_tools=true`); `market_brier` remains an eval metric.
 
 ## Leakage controls
 

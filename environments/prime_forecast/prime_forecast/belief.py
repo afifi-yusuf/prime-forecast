@@ -130,11 +130,14 @@ class SearchResult:
     body: str = ""
 
     def to_snippet_dict(self) -> dict:
+        # Prefer stored body (already leak-filtered at search time); no separate
+        # summarize tool — lookup_url is for fetching a full page by URL.
+        text = (self.body or self.snippet or "")[:1600]
         return {
             "index": self.index,
             "title": self.title,
             "url": self.url,
-            "snippet": self.snippet[:800],
+            "snippet": text,
         }
 
 

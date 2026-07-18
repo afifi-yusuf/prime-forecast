@@ -8,8 +8,8 @@ LEAKAGE: never return live midpoint/price for historical cutoffs. Always use
 CLOB /prices-history with endTs = cutoff. Metadata responses are stripped to
 static contract identity (Gamma payloads contain resolution/winner fields).
 
-These tools are DISABLED by default in the environment (crowd-prior copying
-collapsed GRPO groups in haruspex runs); enable via include_market_tools=True.
+Enabled by default. Only cutoff-safe CLOB history + dataset metadata are exposed;
+live Gamma market payloads (resolution/winner) are never returned.
 """
 
 from __future__ import annotations
@@ -123,7 +123,7 @@ async def get_market_metadata(ctx: dict) -> str:
     """Cutoff-safe metadata for the episode's own market (dataset fields only).
 
     We never expose the raw Gamma payload live — it contains resolution status
-    and winner fields. The dataset row already holds everything static.
+    and winner fields. Volume comes from the dataset scrape (not a live call).
     """
     return json.dumps({
         "market_id": ctx.get("market_id"),
@@ -134,7 +134,12 @@ async def get_market_metadata(ctx: dict) -> str:
         "token_id": ctx.get("token_id"),
         "cutoff_date": ctx.get("cutoff_date"),
         "category": ctx.get("category"),
+        "volume": ctx.get("volume"),
         "source": "dataset_manifest",
+        "note": (
+            "volume is total traded USD from the dataset scrape (liquidity prior). "
+            "Use polymarket_market_price / polymarket_price_history for crowd odds."
+        ),
     }, default=str)
 
 
@@ -204,9 +209,23 @@ async def price_history(ctx: dict, interval: str = "1d", fidelity: int = 60) -> 
     try:
         raw = await _http_get(f"{CLOB_BASE}/prices-history", params=params)
         pts = _normalize_history_points(raw, cutoff_date)
+        prices = [float(p["p"]) for p in pts]
+        summary = None
+        if prices:
+            summary = {
+                "n": len(prices),
+                "first_p": prices[0],
+                "last_p": prices[-1],
+                "min_p": min(prices),
+                "max_p": max(prices),
+                "mean_p": sum(prices) / len(prices),
+            }
+        # Cap raw points so the context stays small; summary carries the signal.
+        display = pts if len(pts) <= 48 else pts[:: max(1, len(pts) // 48)][:48]
         return json.dumps({
             "interval": interval,
-            "points": pts,
+            "summary": summary,
+            "points": display,
             "cutoff_date": cutoff_date,
             "source": "clob_prices_history",
         }, default=str)

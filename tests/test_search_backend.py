@@ -15,10 +15,21 @@ def test_search_backend_prefers_explicit_env(monkeypatch):
     assert search.search_backend() == "agentcore"
 
 
+def test_search_backend_auto_brave(monkeypatch):
+    monkeypatch.delenv("PF_SEARCH_BACKEND", raising=False)
+    monkeypatch.delenv("AGENTCORE_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("AGENTCORE_GATEWAY_ID", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    monkeypatch.setenv("BRAVE_API_KEY", "BSA-x")
+    assert search.search_backend() == "brave"
+
+
 def test_search_backend_auto_tavily(monkeypatch):
     monkeypatch.delenv("PF_SEARCH_BACKEND", raising=False)
     monkeypatch.delenv("AGENTCORE_GATEWAY_URL", raising=False)
     monkeypatch.delenv("AGENTCORE_GATEWAY_ID", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     monkeypatch.delenv("EXA_API_KEY", raising=False)
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
     assert search.search_backend() == "tavily"
@@ -29,6 +40,7 @@ def test_search_backend_auto_exa(monkeypatch):
     monkeypatch.delenv("AGENTCORE_GATEWAY_URL", raising=False)
     monkeypatch.delenv("AGENTCORE_GATEWAY_ID", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     monkeypatch.setenv("EXA_API_KEY", "x")
     assert search.search_backend() == "exa"
 

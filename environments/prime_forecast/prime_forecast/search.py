@@ -1,13 +1,15 @@
 """Web search backends with publish-date filtering + leak filter.
 
 Backends (PF_SEARCH_BACKEND):
+  brave      — Brave Search API (cheap; no native end-date — leak filter applies)
   tavily     — Tavily Search API (free tier; end_date cutoff)
   exa        — Exa API (supports endPublishedDate)
   agentcore  — Amazon Bedrock AgentCore Web Search via Gateway MCP
   none       — disabled (returns empty / error)
 
 Env:
-  PF_SEARCH_BACKEND          — tavily | exa | agentcore | none (auto if unset)
+  PF_SEARCH_BACKEND          — brave | tavily | exa | agentcore | none (auto if unset)
+  BRAVE_API_KEY              — required for brave
   TAVILY_API_KEY             — required for tavily
   EXA_API_KEY                — required for exa
   AGENTCORE_GATEWAY_URL      — MCP endpoint, e.g.
@@ -36,9 +38,10 @@ from prime_forecast.leak_filter import (
 
 _EXA_URL = "https://api.exa.ai/search"
 _TAVILY_URL = "https://api.tavily.com/search"
+_BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
 _MAX_TEXT_CHARS = 2000
 _AGENTCORE_TOOL_NAMES = ("WebSearch", "WebSearchTool", "web_search", "web-search")
-_BACKENDS = frozenset({"tavily", "exa", "agentcore", "none"})
+_BACKENDS = frozenset({"brave", "tavily", "exa", "agentcore", "none"})
 
 
 def search_backend() -> str:
@@ -48,6 +51,8 @@ def search_backend() -> str:
         return raw
     if os.environ.get("AGENTCORE_GATEWAY_URL") or os.environ.get("AGENTCORE_GATEWAY_ID"):
         return "agentcore"
+    if os.environ.get("BRAVE_API_KEY", "").strip():
+        return "brave"
     if os.environ.get("TAVILY_API_KEY", "").strip():
         return "tavily"
     if os.environ.get("EXA_API_KEY", "").strip():
@@ -154,6 +159,69 @@ async def _apply_leak_filter(
                 parsed = []
         raw = filtered
     return raw, parsed, filter_debug
+
+
+# ------------------------------------------------------------------ Brave
+
+async def search_brave(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Brave Web Search API. No native publish-date cutoff — leak filter applies."""
+    api_key = os.environ.get("BRAVE_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("BRAVE_API_KEY not set (required for PF_SEARCH_BACKEND=brave)")
+
+    q = _sanitize_query(query, max_chars=400)
+    if not q:
+        raise ValueError("query empty after sanitization")
+    k = max(1, min(int(num_results), 20))
+
+    params = {
+        "q": q,
+        "count": k,
+        "search_lang": "en",
+        "country": "us",
+        "text_decorations": "0",
+        "spellcheck": "1",
+        "extra_snippets": "true",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(
+            _BRAVE_URL,
+            params=params,
+            headers={
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+                "X-Subscription-Token": api_key,
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+
+    items = []
+    for item in (data.get("web") or {}).get("results") or []:
+        snippets = item.get("extra_snippets") or []
+        extra = " ".join(str(s) for s in snippets if s)
+        desc = item.get("description") or item.get("snippet") or ""
+        text = (desc + (" " + extra if extra else "")).strip()
+        items.append({
+            "title": item.get("title", "") or "",
+            "url": item.get("url", "") or "",
+            "publishedDate": (
+                item.get("page_age")
+                or item.get("age")
+                or item.get("published")
+                or ""
+            ),
+            "text": text[:_MAX_TEXT_CHARS],
+        })
+    raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
 
 
 # ----------------------------------------------------------------- Tavily
@@ -380,8 +448,12 @@ async def web_search(
     backend = search_backend()
     if backend == "none":
         raise ValueError(
-            "No search backend configured. Set PF_SEARCH_BACKEND=tavily|exa|agentcore "
-            "and the matching credentials (TAVILY_API_KEY, EXA_API_KEY, or AGENTCORE_GATEWAY_URL)."
+            "No search backend configured. Set PF_SEARCH_BACKEND=brave|tavily|exa|agentcore "
+            "and the matching credentials."
+        )
+    if backend == "brave":
+        return await search_brave(
+            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
         )
     if backend == "tavily":
         return await search_tavily(

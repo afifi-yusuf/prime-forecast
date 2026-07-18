@@ -26,5 +26,6 @@ def sample_row() -> dict:
         "resolution_date": "2026-06-01T00:00:00Z",
         "outcome": 1,
         "price_at_cutoff": 0.437,
+        "volume": 125000.0,
         "category": "ai_tech",
     }

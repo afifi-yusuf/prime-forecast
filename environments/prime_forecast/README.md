@@ -8,7 +8,7 @@ A multi-turn agent receives a resolved Polymarket binary question with a histori
 reward = 1 - (p - y)^2        (0 if the agent never submits)
 ```
 
-Missing submission scores 0.75 (always-0.5 baseline); optional protocol bonus defaults to off. The crowd price at cutoff is an eval-only baseline (`market_brier`) and, by default, is **not** available to the agent (`include_market_tools=False`) — crowd-price copying collapses GRPO advantage groups.
+Missing submission scores 0.75 (always-0.5 baseline); optional protocol bonus defaults to off. Cutoff-safe Polymarket crowd tools (`include_market_tools=True` by default) expose price-at-cutoff, price history, and dataset volume; `market_brier` remains an eval metric. Use the zero-advantage pre-batch filter to drop collapsed crowd-copy groups.
 
 ## Leak safety
 
@@ -22,7 +22,8 @@ Missing submission scores 0.75 (always-0.5 baseline); optional protocol bonus de
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `PF_SEARCH_BACKEND` | recommended | `tavily` \| `agentcore` \| `exa` \| `none` |
+| `PF_SEARCH_BACKEND` | recommended | `brave` \| `tavily` \| `agentcore` \| `exa` \| `none` |
+| `BRAVE_API_KEY` | for brave | Brave Search API (cheap; leak filter supplies cutoff) |
 | `TAVILY_API_KEY` | for tavily | Tavily Search (free tier; local eval / small smokes) |
 | `AGENTCORE_GATEWAY_URL` | for agentcore | MCP gateway URL from `scripts/setup_agentcore_search.py` |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` / `AWS_PROFILE` | for agentcore | SigV4 for Gateway MCP (`us-east-1`) + Bedrock leak filter |
@@ -40,7 +41,7 @@ Missing submission scores 0.75 (always-0.5 baseline); optional protocol bonus de
 | `num_examples` / `num_eval_examples` | `-1` | truncate splits |
 | `max_turns` | `8` | BLF T_max |
 | `max_web_searches` | `2` | cap live `web_search` calls per rollout |
-| `include_market_tools` | `false` | expose crowd-price tools |
+| `include_market_tools` | `true` | expose cutoff-safe Polymarket price/history/volume tools |
 | `protocol_bonus_weight` | `0.0` | optional BLF shaping (off by default) |
 
 ## Dataset

@@ -18,15 +18,19 @@ async def _make_state(env: ForecastEnv, sample_row) -> dict:
     return state
 
 
-def test_market_tools_excluded_by_default(sample_row):
+def test_market_tools_included_by_default(sample_row):
     env = _make_env(sample_row)
     names = [t.name for t in env.tool_defs]
     assert "web_search" in names and "submit" in names
-    assert not any(n.startswith("polymarket") for n in names)
+    assert "lookup_url" in names
+    assert "summarize_results" not in names
+    assert "polymarket_market_price" in names
+    assert "polymarket_price_history" in names
+    assert "polymarket_get_market" in names
 
-    env2 = _make_env(sample_row, include_market_tools=True)
+    env2 = _make_env(sample_row, include_market_tools=False)
     names2 = [t.name for t in env2.tool_defs]
-    assert "polymarket_market_price" in names2
+    assert not any(n.startswith("polymarket") for n in names2)
 
 
 def test_hidden_state_arg_not_in_schemas(sample_row):
