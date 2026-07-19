@@ -34,19 +34,36 @@ async def test_forecast_reward_perfect_and_worst():
 
 @pytest.mark.asyncio
 async def test_forecast_reward_soft_no_submit():
-    # Soft no-submit matches always-0.5 so RL is not forced to spam mid-probs.
+    # Soft no-submit is below always-0.5 so stalling is not a safe reward.
     assert await forecast_reward(_state(None), _info(1)) == pytest.approx(NO_SUBMIT_REWARD)
     assert await forecast_reward(_state(None), _info(0)) == pytest.approx(NO_SUBMIT_REWARD)
-    assert NO_SUBMIT_REWARD == pytest.approx(0.75)
+    assert NO_SUBMIT_REWARD == pytest.approx(0.55)
+    assert NO_SUBMIT_REWARD < 0.75
 
 
 @pytest.mark.asyncio
 async def test_reward_band_always_half():
     r = await forecast_reward(_state(0.5), _info(1))
     assert r == pytest.approx(0.75)
-    # Sharp correct beats soft no-submit; sharp wrong loses.
+    # Always-0.5 beats soft no-submit; sharp correct/wrong still ordered vs no-submit.
+    assert r > NO_SUBMIT_REWARD
     assert await forecast_reward(_state(0.9), _info(1)) > NO_SUBMIT_REWARD
     assert await forecast_reward(_state(0.1), _info(1)) < NO_SUBMIT_REWARD
+
+
+@pytest.mark.asyncio
+async def test_crowd_copy_penalty():
+    # Echoing crowd (0.40) with penalty=0.20 should lose 0.20 vs raw Brier reward.
+    state = _state(0.40, crowd_copy_penalty=0.20, crowd_copy_eps=0.02)
+    raw = 1.0 - (0.40 - 1.0) ** 2
+    assert await forecast_reward(state, _info(1, price=0.40)) == pytest.approx(raw - 0.20)
+    # Slightly off the crowd: no penalty.
+    assert await forecast_reward(
+        _state(0.45, crowd_copy_penalty=0.20, crowd_copy_eps=0.02),
+        _info(1, price=0.40),
+    ) == pytest.approx(1.0 - (0.45 - 1.0) ** 2)
+    # Penalty disabled by default when state keys absent.
+    assert await forecast_reward(_state(0.40), _info(1, price=0.40)) == pytest.approx(raw)
 
 
 @pytest.mark.asyncio

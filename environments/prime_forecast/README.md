@@ -5,10 +5,10 @@ Agentic forecasting RLVR environment for [verifiers](https://github.com/PrimeInt
 A multi-turn agent receives a resolved Polymarket binary question with a historical cutoff date, researches it with live cutoff-safe tools (AgentCore or Exa web search, yfinance, FRED, DBnomics, Wikipedia-as-of-cutoff, trend analysis), maintains a BLF-style structured belief state, and submits `P(YES)`. Reward is positive-shifted Brier against the real outcome:
 
 ```
-reward = 1 - (p - y)^2        (0 if the agent never submits)
+reward = 1 - (p - y)^2        (0.55 soft no-submit)
 ```
 
-Missing submission scores 0.75 (always-0.5 baseline); optional protocol bonus defaults to off. Cutoff-safe Polymarket crowd tools (`include_market_tools=True` by default) expose price-at-cutoff, price history, and dataset volume; `market_brier` remains an eval metric. Use the zero-advantage pre-batch filter to drop collapsed crowd-copy groups.
+Missing submission scores 0.55 (below always-0.5) so stalling is not a safe reward; optional protocol bonus defaults to off. Cutoff-safe Polymarket crowd tools (`include_market_tools=True` by default) expose price-at-cutoff, price history, and dataset volume; `market_brier` remains an eval metric. Use the zero-advantage pre-batch filter to drop collapsed crowd-copy groups.
 
 ## Leak safety
 
@@ -42,6 +42,8 @@ Missing submission scores 0.75 (always-0.5 baseline); optional protocol bonus de
 | `max_turns` | `8` | BLF T_max |
 | `max_web_searches` | `2` | cap live `web_search` calls per rollout |
 | `include_market_tools` | `true` | expose cutoff-safe Polymarket price/history/volume tools |
+| `crowd_copy_penalty` | `0.20` | subtract from reward when `|p - crowd| ≤ crowd_copy_eps` |
+| `crowd_copy_eps` | `0.02` | absolute distance to `price_at_cutoff` treated as a copy |
 | `protocol_bonus_weight` | `0.0` | optional BLF shaping (off by default) |
 
 ## Dataset

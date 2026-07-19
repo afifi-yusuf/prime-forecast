@@ -2,7 +2,7 @@
 
 The agent researches a resolved Polymarket question via live, cutoff-safe
 tools and submits P(YES). Reward is positive-shifted Brier vs the outcome:
-    reward = 1 - (p - y)^2      (0.75 soft no-submit = always-0.5 baseline)
+    reward = 1 - (p - y)^2      (0.55 soft no-submit; below always-0.5 to force submit)
 
 Crowd-price tools (cutoff-safe CLOB history + dataset volume) are on by default.
 Treat the crowd as a prior; zero-advantage groups are handled by the
@@ -30,9 +30,12 @@ from prime_forecast import datatools, polymarket, prompts, search
 
 MIN_PROB = 0.05
 MAX_PROB = 0.95
-# Soft no-submit: same reward as always predicting 0.5 under Brier.
-# Hard 0 forced models to spam submit ~0.5 (smoke-run collapse).
-NO_SUBMIT_REWARD = 0.75
+# Soft no-submit: below a mediocre calibrated submit so stalling is not safe.
+# Was 0.75 (= always-0.5); that matched submit means and taught max-turns stalls.
+NO_SUBMIT_REWARD = 0.55
+# Penalize near-exact crowd echoes (common GRPO failure with market tools).
+DEFAULT_CROWD_COPY_EPS = 0.02
+DEFAULT_CROWD_COPY_PENALTY = 0.20
 
 _PROB_TAG_RE = re.compile(r"<probability>\s*([01]?\.?\d+)\s*</probability>", re.IGNORECASE)
 
@@ -85,18 +88,31 @@ def _parse_info(info) -> dict:
 # ------------------------------------------------------------------ rewards
 
 async def forecast_reward(state: vf.State, info) -> float:
-    """Main reward: positive-shifted Brier; soft no-submit (= always-0.5).
+    """Main reward: positive-shifted Brier; soft no-submit below always-0.5.
 
-    r = 1 - (p - y)^2 when a probability is produced; NO_SUBMIT_REWARD (0.75)
-    when missing. Matches the always-0.5 baseline so RL is not forced to spam
-    mid-probability submits (Mantic / Turtel use proper scores on valid p̂).
+    r = 1 - (p - y)^2 when a probability is produced; NO_SUBMIT_REWARD (0.55)
+    when missing. Below always-0.5 so RL prefers finishing over stalling.
+
+    Optional crowd-copy penalty (state crowd_copy_penalty / crowd_copy_eps):
+    if |p - price_at_cutoff| <= eps, subtract penalty so GRPO cannot farm
+    reward by echoing polymarket_market_price.
     """
     p = extract_probability(state)
     if p is None:
         return NO_SUBMIT_REWARD
     meta = _parse_info(info)
     y = 1.0 if int(meta.get("outcome", 0)) == 1 else 0.0
-    return 1.0 - (p - y) ** 2
+    r = 1.0 - (p - y) ** 2
+    penalty = float(state.get("crowd_copy_penalty") or 0.0)
+    eps = float(state.get("crowd_copy_eps") or DEFAULT_CROWD_COPY_EPS)
+    crowd = meta.get("price_at_cutoff")
+    if penalty > 0 and crowd is not None:
+        try:
+            if abs(p - float(crowd)) <= eps:
+                r = max(0.0, r - penalty)
+        except (TypeError, ValueError):
+            pass
+    return r
 
 
 async def protocol_bonus(state: vf.State) -> float:
@@ -166,11 +182,15 @@ class ForecastEnv(vf.StatefulToolEnv):
         include_market_tools: bool = True,
         max_turns: int = 8,
         max_web_searches: int = 2,
+        crowd_copy_penalty: float = DEFAULT_CROWD_COPY_PENALTY,
+        crowd_copy_eps: float = DEFAULT_CROWD_COPY_EPS,
         **kwargs,
     ):
         super().__init__(tools=None, max_turns=max_turns, **kwargs)
         self.include_market_tools = include_market_tools
         self.max_web_searches = max(0, int(max_web_searches))
+        self.crowd_copy_penalty = max(0.0, float(crowd_copy_penalty))
+        self.crowd_copy_eps = max(0.0, float(crowd_copy_eps))
 
         self.add_tool(self.web_search, args_to_skip=["state"])
         self.add_tool(self.lookup_url, args_to_skip=["state"])
@@ -210,6 +230,8 @@ class ForecastEnv(vf.StatefulToolEnv):
         state["submitted_prob"] = None
         state["research_tool_calls"] = 0
         state["web_search_calls"] = 0
+        state["crowd_copy_penalty"] = self.crowd_copy_penalty
+        state["crowd_copy_eps"] = self.crowd_copy_eps
         await super().setup_state(state)
         return state
 
@@ -677,6 +699,8 @@ def load_environment(
     max_web_searches: int = 2,
     include_market_tools: bool = True,
     protocol_bonus_weight: float = 0.0,
+    crowd_copy_penalty: float = DEFAULT_CROWD_COPY_PENALTY,
+    crowd_copy_eps: float = DEFAULT_CROWD_COPY_EPS,
     dataset_rows: list[dict] | None = None,
     **kwargs: Any,
 ) -> vf.Environment:
@@ -693,6 +717,8 @@ def load_environment(
         max_web_searches: Cap live web_search calls per rollout (cost control).
         include_market_tools: Expose Polymarket crowd-price/history tools (on by default).
         protocol_bonus_weight: Weight of optional BLF shaping (default 0 = off).
+        crowd_copy_penalty: Subtract from reward when |p - crowd| <= crowd_copy_eps.
+        crowd_copy_eps: Absolute distance to price_at_cutoff treated as a copy.
         dataset_rows: Inline rows (tests only) — bypasses file loading.
     """
     if dataset_rows is None:
@@ -739,5 +765,7 @@ def load_environment(
         max_turns=max_turns,
         max_web_searches=max_web_searches,
         include_market_tools=include_market_tools,
+        crowd_copy_penalty=crowd_copy_penalty,
+        crowd_copy_eps=crowd_copy_eps,
         **kwargs,
     )

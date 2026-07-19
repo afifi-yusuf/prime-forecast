@@ -1,11 +1,11 @@
-# Smoke run: validate the full loop (secrets, live tools, reward curves) cheaply.
-# Submit with:  prime train run configs/rl/prime-forecast-9b.toml
-# For longer training use configs/rl/prime-forecast-9b-medium.toml.
-# Prereq: Hub env ≥0.1.7, Bedrock bearer refreshed on Hub.
+# Medium run after 9B smoke: raise steps, keep Exa spend bounded.
+# Submit with:  prime train run configs/rl/prime-forecast-9b-medium.toml
+# Prereq: Hub env ≥0.1.7, Bedrock bearer refreshed on Hub, Exa key set.
 
 model = "Qwen/Qwen3.5-9B"
-max_steps = 20
-batch_size = 16
+# 50 * 32 * 4 * ~2 searches ≈ 12.8k Exa calls (budget-check before launch).
+max_steps = 50
+batch_size = 32
 rollouts_per_example = 4
 env_file = ["../../secrets.env"]
 
@@ -22,14 +22,14 @@ type = "zero_advantage"
 enforce = true
 
 [val]
-num_examples = 16
+num_examples = 32
 rollouts_per_example = 1
 interval = 10
 
 # Optional: add WANDB_API_KEY to secrets.env and uncomment
 # [wandb]
 # project = "prime-forecast"
-# name = "9b-smoke"
+# name = "9b-medium"
 
 [checkpoints]
 interval = 25

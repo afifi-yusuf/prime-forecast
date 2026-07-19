@@ -1,10 +1,9 @@
-# Smoke run: validate the full loop (secrets, live tools, reward curves) cheaply.
-# Submit with:  prime train run configs/rl/prime-forecast-9b.toml
-# For longer training use configs/rl/prime-forecast-9b-medium.toml.
-# Prereq: Hub env ≥0.1.7, Bedrock bearer refreshed on Hub.
+# 35B smoke ONLY after 9B medium gate: submit≥80%, truncation≪20%.
+# Submit with:  prime train run configs/rl/prime-forecast-35b-smoke.toml
+# Do NOT run the full prime-forecast-35b.toml until this smoke looks healthy.
 
-model = "Qwen/Qwen3.5-9B"
-max_steps = 20
+model = "Qwen/Qwen3.5-35B-A3B"
+max_steps = 25
 batch_size = 16
 rollouts_per_example = 4
 env_file = ["../../secrets.env"]
@@ -29,10 +28,10 @@ interval = 10
 # Optional: add WANDB_API_KEY to secrets.env and uncomment
 # [wandb]
 # project = "prime-forecast"
-# name = "9b-smoke"
+# name = "35b-smoke"
 
 [checkpoints]
 interval = 25
 
 [adapters]
-interval = 0  # upload adapter at run end
+interval = 0

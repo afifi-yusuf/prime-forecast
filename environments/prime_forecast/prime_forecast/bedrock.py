@@ -13,18 +13,28 @@ Env vars:
   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION — IAM fallback
   PF_FILTER_MODEL        — filter model id (default Claude Haiku 4.5)
   PF_SUMMARIZE_MODEL     — summarizer model id (default Nova 2 Lite)
+
+Prefer a *long-term* Bedrock API key for Hosted Training. Short-term keys encode
+X-Amz-Expires (often 12h) and will start returning AccessDenied mid-run.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+from contextlib import contextmanager
 
 _DEFAULT_REGION = "us-east-1"
 _DEFAULT_FILTER = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 _DEFAULT_SUMMARIZE = "us.amazon.nova-2-lite-v1:0"
 
+_log = logging.getLogger(__name__)
 _client = None
+
+
+class BedrockAuthError(RuntimeError):
+    """Raised when Bedrock rejects the API key / IAM credentials."""
 
 
 def _bedrock_api_key() -> str:
@@ -68,6 +78,34 @@ def summarize_model() -> str:
     return os.environ.get("PF_SUMMARIZE_MODEL") or _DEFAULT_SUMMARIZE
 
 
+def reset_client() -> None:
+    """Drop the cached boto3 client (e.g. after auth failure / key rotation)."""
+    global _client
+    _client = None
+
+
+@contextmanager
+def _bearer_preferred_env():
+    """While creating a bearer-auth client, hide profile/SSO that pods lack.
+
+    Hosted Training often injects AWS_PROFILE from a local env_file. Leaving it
+    set after client creation can make later Converse calls prefer a missing
+    profile over AWS_BEARER_TOKEN_BEDROCK. Keep profile suppressed for the
+    process lifetime when a bearer key is configured.
+    """
+    saved: dict[str, str] = {}
+    if _bedrock_api_key():
+        for name in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE"):
+            if name in os.environ:
+                saved[name] = os.environ.pop(name)
+    try:
+        yield
+    finally:
+        # Do NOT restore profiles when bearer is set — that re-breaks auth.
+        if not _bedrock_api_key():
+            os.environ.update(saved)
+
+
 def _get_client():
     global _client
     if _client is not None:
@@ -76,21 +114,13 @@ def _get_client():
     from botocore.config import Config
 
     _ensure_bearer_env()
-    # Hosted Training often inherits a local AWS_PROFILE from env_file that does
-    # not exist in the container. Prefer the Bedrock bearer token when set.
-    saved_profile = None
-    if _bedrock_api_key() and os.environ.get("AWS_PROFILE"):
-        saved_profile = os.environ.pop("AWS_PROFILE")
-    try:
+    with _bearer_preferred_env():
         config = Config(
             read_timeout=90,
             connect_timeout=10,
             retries={"max_attempts": 2, "mode": "standard"},
         )
         _client = boto3.client("bedrock-runtime", region_name=bedrock_region(), config=config)
-    finally:
-        if saved_profile is not None:
-            os.environ["AWS_PROFILE"] = saved_profile
     return _client
 
 
@@ -103,13 +133,38 @@ def _extract_converse_text(resp: dict) -> str:
     return "\n".join(parts)
 
 
+def _is_auth_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    if "AccessDenied" in name or "UnrecognizedClient" in name or "ExpiredToken" in name:
+        return True
+    return any(
+        needle in msg
+        for needle in (
+            "accessdenied",
+            "api key is valid",
+            "security token",
+            "expired",
+            "unauthorized",
+            "invalidsecurity",
+            "could not refresh",
+        )
+    )
+
+
 def _chat_sync(prompt: str, *, model: str, max_tokens: int) -> tuple[str, int, int]:
     client = _get_client()
-    resp = client.converse(
-        modelId=model,
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},
-    )
+    try:
+        resp = client.converse(
+            modelId=model,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": max_tokens, "temperature": 0.0},
+        )
+    except Exception as e:  # noqa: BLE001
+        if _is_auth_error(e):
+            reset_client()
+            raise BedrockAuthError(str(e)) from e
+        raise
     text = _extract_converse_text(resp)
     usage = resp.get("usage", {})
     return text, int(usage.get("inputTokens", 0)), int(usage.get("outputTokens", 0))
@@ -127,4 +182,12 @@ async def chat(
         return "", 0, 0
     if model is None:
         model = filter_model() if role == "filter" else summarize_model()
-    return await asyncio.to_thread(_chat_sync, prompt, model=model, max_tokens=max_tokens)
+    try:
+        return await asyncio.to_thread(_chat_sync, prompt, model=model, max_tokens=max_tokens)
+    except BedrockAuthError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        if _is_auth_error(e):
+            reset_client()
+            raise BedrockAuthError(str(e)) from e
+        raise

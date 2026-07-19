@@ -144,7 +144,11 @@ def _parse_filter_decisions(text: str) -> dict[int, str]:
 
 
 async def filter_results(raw: str, cutoff_date: str, *, question: str = "") -> tuple[str, dict]:
-    """Return (filtered_raw, debug). Heuristic pre-filter, then LLM on survivors."""
+    """Return (filtered_raw, debug). Heuristic pre-filter, then LLM on survivors.
+
+    Bedrock auth/API failures propagate — callers (web_search) fail rather than
+    silently weakening the leak filter.
+    """
     debug: dict = {"role": "filter", "mode": "none", "decisions": {}, "heuristic_dropped": 0}
     if not raw or not raw.strip():
         return "", debug
