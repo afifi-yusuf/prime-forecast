@@ -45,6 +45,26 @@ def _bedrock_api_key() -> str:
     )
 
 
+def _has_iam_creds() -> bool:
+    return bool(
+        os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("AWS_PROFILE")
+        or os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+        or os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+    )
+
+
+def _drop_bearer_env() -> None:
+    """Remove bearer-token env vars so boto3 falls back to the IAM chain.
+
+    boto3 prefers AWS_BEARER_TOKEN_BEDROCK over IAM keys whenever it is set —
+    a stale/expired token (e.g. injected by dashboard-stored secrets) would
+    otherwise shadow perfectly valid IAM credentials for the whole run.
+    """
+    for name in ("AWS_BEARER_TOKEN_BEDROCK", "BEDROCK_API_KEY"):
+        os.environ.pop(name, None)
+
+
 def _ensure_bearer_env() -> None:
     """Map BEDROCK_API_KEY → AWS_BEARER_TOKEN_BEDROCK so boto3 picks it up."""
     key = _bedrock_api_key()
@@ -185,6 +205,14 @@ async def chat(
     try:
         return await asyncio.to_thread(_chat_sync, prompt, model=model, max_tokens=max_tokens)
     except BedrockAuthError:
+        if _bedrock_api_key() and _has_iam_creds():
+            # Expired/invalid bearer shadowing valid IAM keys: drop it once
+            # for the process lifetime and retry on the IAM chain.
+            _log.warning("Bedrock bearer token rejected; falling back to IAM credentials")
+            _drop_bearer_env()
+            reset_client()
+            return await asyncio.to_thread(
+                _chat_sync, prompt, model=model, max_tokens=max_tokens)
         raise
     except Exception as e:  # noqa: BLE001
         if _is_auth_error(e):
