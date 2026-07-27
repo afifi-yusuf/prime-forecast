@@ -72,18 +72,29 @@ def _gamma_rows(data: Any) -> list[dict]:
     return []
 
 
-async def _gamma_search(query: str, limit: int = 5) -> list[dict]:
+async def _gamma_search(query: str, limit: int = 5) -> tuple[list[dict], str | None]:
+    """Search Gamma. Returns (results, error). public-search returns events
+    (with nested markets), tags, profiles — there is no top-level markets key.
+    keep_closed_markets is required: our episodes are resolved markets, which
+    the default active-only search would exclude."""
     try:
-        data = await _http_get(f"{GAMMA_BASE}/public-search",
-                               params={"q": query, "limit_per_type": limit})
-    except Exception:  # noqa: BLE001
-        return []
+        data = await _http_get(f"{GAMMA_BASE}/public-search", params={
+            "q": query,
+            "limit_per_type": limit,
+            "keep_closed_markets": 1,
+            "search_profiles": "false",
+        })
+    except Exception as e:  # noqa: BLE001
+        return [], f"gamma search unavailable: {type(e).__name__}"
     out: list[dict] = []
-    for key in ("events", "markets"):
-        for item in data.get(key) or []:
-            if isinstance(item, dict):
-                out.append({**item, "_gamma_kind": key[:-1]})
-    return out
+    for event in data.get("events") or []:
+        if not isinstance(event, dict):
+            continue
+        out.append({**event, "_gamma_kind": "event"})
+        for market in event.get("markets") or []:
+            if isinstance(market, dict):
+                out.append({**market, "_gamma_kind": "market"})
+    return out, None
 
 
 def _normalize_history_points(raw: Any, cutoff_date: str) -> list[dict]:
@@ -144,15 +155,22 @@ async def get_market_metadata(ctx: dict) -> str:
 
 
 async def search_markets(query: str, ctx: dict, limit: int = 5) -> str:
+    items, error = await _gamma_search(query, limit=limit)
     results = []
-    for item in (await _gamma_search(query, limit=limit))[:limit]:
+    for item in items[:limit]:
         results.append({
             "question": item.get("title") or item.get("question"),
             "slug": item.get("slug"),
             "market_id": item.get("id") or item.get("conditionId"),
             "kind": item.get("_gamma_kind"),
         })
-    return json.dumps({"query": query, "results": results, "source": "gamma_search"}, default=str)
+    payload: dict = {"query": query, "results": results, "source": "gamma_search"}
+    if error:
+        # Surface outages explicitly: an empty list otherwise teaches the agent
+        # the false lesson that no related markets exist.
+        payload["error"] = error
+        payload["note"] = "Search failed — do NOT conclude related markets don't exist."
+    return json.dumps(payload, default=str)
 
 
 async def market_price(ctx: dict) -> str:
@@ -195,6 +213,15 @@ async def price_history(ctx: dict, interval: str = "1d", fidelity: int = 60) -> 
     tok = ctx.get("token_id")
     end_ts = _cutoff_unix(cutoff_date)
     if not tok:
+        fallback = ctx.get("price_at_cutoff")
+        if fallback is not None:
+            return json.dumps({
+                "points": [{"t": cutoff_date, "p": float(fallback)}],
+                "summary": {"n": 1, "last_p": float(fallback)},
+                "cutoff_date": cutoff_date,
+                "source": "dataset_fallback",
+                "note": "No token_id; single point = price at cutoff.",
+            }, default=str)
         return json.dumps({"error": "no token_id for this market"})
 
     params: dict = {"market": str(tok), "fidelity": fidelity}
@@ -230,4 +257,16 @@ async def price_history(ctx: dict, interval: str = "1d", fidelity: int = 60) -> 
             "source": "clob_prices_history",
         }, default=str)
     except Exception as e:  # noqa: BLE001
+        # CLOB may be unreachable from training pods (DNS-filtered egress).
+        # Fall back to the dataset's price-at-cutoff so the crowd prior stays usable.
+        fallback = ctx.get("price_at_cutoff")
+        if fallback is not None:
+            return json.dumps({
+                "error": f"clob prices-history unavailable: {type(e).__name__}",
+                "points": [{"t": cutoff_date, "p": float(fallback)}],
+                "summary": {"n": 1, "last_p": float(fallback)},
+                "cutoff_date": cutoff_date,
+                "source": "dataset_fallback",
+                "note": "Live history unreachable; single point = price at cutoff.",
+            }, default=str)
         return json.dumps({"error": f"clob prices-history failed: {e}"})
