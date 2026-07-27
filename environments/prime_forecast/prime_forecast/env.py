@@ -223,6 +223,7 @@ class ForecastEnv(vf.StatefulToolEnv):
             "category": meta.get("category"),
             "price_at_cutoff": meta.get("price_at_cutoff"),
             "volume": meta.get("volume"),
+            "price_history": meta.get("price_history") or [],
         }
         state["belief"] = BeliefState()
         state["store"] = SearchStore()
@@ -647,6 +648,9 @@ def _row_to_example(row: dict, *, max_turns: int) -> dict:
         "question": row.get("question"),
         "resolution_criteria": row.get("resolution_criteria"),
         "volume": row.get("volume"),
+        # Pre-cutoff crowd trend from the dataset scrape: serves
+        # polymarket_price_history on pods where CLOB is unreachable.
+        "price_history": row.get("price_history") or [],
     }
     return {
         "prompt": [{"role": "user", "content": prompts.seed_user_message(row, max_turns=max_turns)}],

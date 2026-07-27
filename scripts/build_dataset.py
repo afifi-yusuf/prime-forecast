@@ -719,11 +719,28 @@ def temporal_split(rows: list[dict[str, Any]], train_frac: float, val_frac: floa
             row["split"] = "test"
 
 
+def slim_price_history(history: list[dict[str, Any]], max_points: int = 48) -> list[dict[str, Any]]:
+    """Downsample price history for the packaged wheel (~1.6 KB/row).
+
+    Kept in the package so polymarket_price_history can serve the crowd trend
+    on training pods where clob.polymarket.com is DNS-filtered.
+    """
+    h = history or []
+    if len(h) > max_points:
+        step = max(1, len(h) // max_points)
+        h = h[::step][:max_points]
+    return [{"t": str(p.get("t"))[:13], "p": round(float(p.get("p", 0)), 3)} for p in h]
+
+
 def write_jsonl(path: Path, rows: list[dict[str, Any]], *, slim: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         for row in rows:
-            out = {k: v for k, v in row.items() if k != "price_history"} if slim else row
+            if slim:
+                out = dict(row)
+                out["price_history"] = slim_price_history(row.get("price_history") or [])
+            else:
+                out = row
             f.write(json.dumps(out, default=str, sort_keys=True) + "\n")
 
 

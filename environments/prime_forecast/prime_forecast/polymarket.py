@@ -208,20 +208,50 @@ async def market_price(ctx: dict) -> str:
     }, default=str)
 
 
+def _dataset_history_fallback(ctx: dict, cutoff_date: str, error: str | None = None) -> str | None:
+    """Serve the dataset's pre-cutoff price history when CLOB is unreachable.
+
+    Training pods DNS-filter clob.polymarket.com; the build scrape ships a
+    downsampled 7-day history in each row so the crowd trend stays available.
+    Returns None when the dataset carries neither history nor a cutoff price.
+    """
+    pts = [
+        {"t": p.get("t"), "p": float(p.get("p"))}
+        for p in (ctx.get("price_history") or [])
+        if p.get("p") is not None
+    ]
+    if not pts and ctx.get("price_at_cutoff") is not None:
+        pts = [{"t": cutoff_date, "p": float(ctx["price_at_cutoff"])}]
+    if not pts:
+        return None
+    prices = [p["p"] for p in pts]
+    payload: dict = {
+        "summary": {
+            "n": len(prices),
+            "first_p": prices[0],
+            "last_p": prices[-1],
+            "min_p": min(prices),
+            "max_p": max(prices),
+            "mean_p": sum(prices) / len(prices),
+        },
+        "points": pts,
+        "cutoff_date": cutoff_date,
+        "source": "dataset_fallback",
+        "note": "Pre-cutoff history from the dataset scrape (live CLOB unreachable).",
+    }
+    if error:
+        payload["error"] = error
+    return json.dumps(payload, default=str)
+
+
 async def price_history(ctx: dict, interval: str = "1d", fidelity: int = 60) -> str:
     cutoff_date = str(ctx.get("cutoff_date") or "")
     tok = ctx.get("token_id")
     end_ts = _cutoff_unix(cutoff_date)
     if not tok:
-        fallback = ctx.get("price_at_cutoff")
+        fallback = _dataset_history_fallback(ctx, cutoff_date)
         if fallback is not None:
-            return json.dumps({
-                "points": [{"t": cutoff_date, "p": float(fallback)}],
-                "summary": {"n": 1, "last_p": float(fallback)},
-                "cutoff_date": cutoff_date,
-                "source": "dataset_fallback",
-                "note": "No token_id; single point = price at cutoff.",
-            }, default=str)
+            return fallback
         return json.dumps({"error": "no token_id for this market"})
 
     params: dict = {"market": str(tok), "fidelity": fidelity}
@@ -257,16 +287,8 @@ async def price_history(ctx: dict, interval: str = "1d", fidelity: int = 60) -> 
             "source": "clob_prices_history",
         }, default=str)
     except Exception as e:  # noqa: BLE001
-        # CLOB may be unreachable from training pods (DNS-filtered egress).
-        # Fall back to the dataset's price-at-cutoff so the crowd prior stays usable.
-        fallback = ctx.get("price_at_cutoff")
+        fallback = _dataset_history_fallback(
+            ctx, cutoff_date, error=f"clob prices-history unavailable: {type(e).__name__}")
         if fallback is not None:
-            return json.dumps({
-                "error": f"clob prices-history unavailable: {type(e).__name__}",
-                "points": [{"t": cutoff_date, "p": float(fallback)}],
-                "summary": {"n": 1, "last_p": float(fallback)},
-                "cutoff_date": cutoff_date,
-                "source": "dataset_fallback",
-                "note": "Live history unreachable; single point = price at cutoff.",
-            }, default=str)
+            return fallback
         return json.dumps({"error": f"clob prices-history failed: {e}"})
