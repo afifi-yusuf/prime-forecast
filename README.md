@@ -34,11 +34,12 @@ uv tool install prime
 # 2. Run tests
 .venv/bin/python -m pytest tests/ -q
 
-# 3. Search + secrets (AgentCore Web Search recommended; Exa optional)
+# 3. Search + secrets (Firecrawl recommended; AgentCore/Exa optional)
 cp secrets.env.example secrets.env
-# Create AgentCore Gateway (us-east-1; needs IAM keys, not Bedrock bearer alone):
-.venv/bin/python scripts/setup_agentcore_search.py
-# Paste AGENTCORE_GATEWAY_URL into secrets.env and set PF_SEARCH_BACKEND=agentcore
+# Paste FIRECRAWL_API_KEY into secrets.env (PF_SEARCH_BACKEND=firecrawl is the default).
+# AgentCore alternative (us-east-1; needs IAM keys, not Bedrock bearer alone):
+#   .venv/bin/python scripts/setup_agentcore_search.py
+#   then set AGENTCORE_GATEWAY_URL and PF_SEARCH_BACKEND=agentcore
 
 # 4. Local eval (AWS IAM for AgentCore + Bedrock leak filter)
 prime eval run prime-forecast -m openai/gpt-4.1-mini -n 10
@@ -54,7 +55,7 @@ prime deployments create <adapter-id>
 
 ## Web search
 
-Backends via `PF_SEARCH_BACKEND`: **`tavily`** (free tier; good for local eval), **`agentcore`** (AWS, us-east-1, ~$7/1k; needs IAM gateway), **`exa`**. RL configs set `max_web_searches=2` to cap spend.
+Backends via `PF_SEARCH_BACKEND`: **`firecrawl`** (default; `tbs` date-range cutoff, search-only = 1 credit/call), **`tavily`** (free tier; good for local eval), **`agentcore`** (AWS, us-east-1, ~$7/1k; needs IAM gateway), **`brave`**, **`exa`**. RL configs set `max_web_searches=2` to cap spend.
 
 
 ## Reward

@@ -10,14 +10,17 @@ offset-pagination cap (~2100 rows) fixed: events are harvested in sliding
 end-date windows (end_date_min/end_date_max), each window paginated with
 offsets that stay under the cap; windows that still overflow are subdivided.
 
-Filters (defaults, v2):
+Filters (defaults, v3):
   - closed/resolved binary YES/NO markets
-  - cutoff ~14 days before resolution; reject if realized horizon < 5 days
+  - stratified cutoff horizons sampled from --horizon-grid (7/14/30/60/90 days,
+    hash-stable per market); reject if realized horizon < 5 days
+  - cutoff never earlier than --eligible-after (post-model-knowledge only)
   - cutoff price in [0.10, 0.90], volume >= 5000
   - temporal eligibility: resolution after the Qwen3.5 release window
   - sports/esports/pop-culture excluded unless explicitly included
-  - category caps (esp. crypto/weather) + question-text dedupe
-  - temporal train/val/test split by resolution date (no cross-time leakage)
+  - template-family cap (--max-per-template) kills recurring mention markets
+  - category caps enforced against the FINAL selected total (post-trim)
+  - question-text dedupe + temporal train/val/test split by resolution date
 
 Example:
   python scripts/build_dataset.py --target-total 5000 --out-dir data --install
@@ -26,6 +29,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -124,10 +128,23 @@ def parse_args() -> argparse.Namespace:
                         "Empty disables.")
     p.add_argument("--eligible-before", default="",
                    help="Only markets resolving before this date (default: now).")
-    p.add_argument("--horizon-days", type=float, default=14.0,
-                   help="Preferred cutoff = resolution - this many days.")
+    p.add_argument("--horizon-grid", default="7,14,30,60,90",
+                   help="Candidate cutoff horizons (days before resolution). One is "
+                        "picked per market, hash-stable, among those that fit the "
+                        "market's lifetime and the --eligible-after cutoff floor.")
     p.add_argument("--min-horizon-days", type=float, default=5.0,
                    help="Reject rows whose (resolution - cutoff) is shorter than this.")
+    p.add_argument("--max-per-template", type=int, default=5,
+                   help="Cap rows per normalized question template (numbers/dates "
+                        "stripped) to stop recurring mention-market families.")
+    p.add_argument("--min-total", type=int, default=1600,
+                   help="Fraction-cap trim never shrinks the dataset below this; "
+                        "caps relax softly instead (scarce categories would "
+                        "otherwise force the total toward zero).")
+    p.add_argument("--from-candidates", default="",
+                   help="Skip the Gamma scan and load candidates from this JSONL "
+                        "(written as candidates.jsonl by every scan). Lets you "
+                        "re-tune selection caps without a 1h re-scan.")
     p.add_argument("--min-before-resolution-hours", type=float, default=24.0)
     p.add_argument("--min-after-start-hours", type=float, default=24.0)
     p.add_argument("--price-window-days", type=float, default=7.0)
@@ -395,32 +412,48 @@ def market_volume(market: dict[str, Any], event: dict[str, Any]) -> float:
     return as_float(value) or 0.0
 
 
+def _stable_pick(seed_key: str, n: int) -> int:
+    """Deterministic index in [0, n) from a market identifier (rebuild-stable)."""
+    return int(hashlib.sha1(seed_key.encode()).hexdigest(), 16) % n
+
+
 def choose_cutoff(
     created_at: datetime | None,
     resolution_at: datetime | None,
     *,
-    horizon_days: float,
+    horizon_grid: list[float],
     min_after_start_hours: float,
     min_before_resolution_hours: float,
+    min_cutoff: datetime | None,
+    seed_key: str,
 ) -> tuple[datetime | None, str]:
+    """Pick a cutoff by sampling a horizon from the grid (hash-stable per market).
+
+    A horizon is feasible when the implied cutoff falls inside the market's
+    lifetime AND at/after min_cutoff — cutoffs earlier than the model-knowledge
+    boundary would let the model 'remember the future' relative to the episode.
+    """
     if resolution_at is None:
         return None, "missing_resolution_date"
 
     latest = resolution_at - timedelta(hours=min_before_resolution_hours)
-    if created_at is None:
-        candidate = resolution_at - timedelta(days=horizon_days)
-        if candidate > latest:
-            candidate = latest
-        return candidate if candidate < resolution_at else None, "horizon_no_start"
-
-    earliest = created_at + timedelta(hours=min_after_start_hours)
-    if earliest >= latest:
+    earliest = created_at + timedelta(hours=min_after_start_hours) if created_at else None
+    if min_cutoff is not None:
+        earliest = max(earliest, min_cutoff) if earliest else min_cutoff
+    if earliest is not None and earliest >= latest:
         return None, "too_short"
 
-    candidate = resolution_at - timedelta(days=horizon_days)
-    if earliest <= candidate <= latest:
-        return candidate, "horizon"
+    feasible = [
+        h for h in horizon_grid
+        if (cand := resolution_at - timedelta(days=h)) <= latest
+        and (earliest is None or cand >= earliest)
+    ]
+    if feasible:
+        h = feasible[_stable_pick(seed_key, len(feasible))]
+        return resolution_at - timedelta(days=h), f"horizon_{int(h)}d"
 
+    if earliest is None:
+        return None, "too_short"
     # Shorter market: use midpoint of the valid interval instead of a very-late cutoff.
     midpoint = earliest + (latest - earliest) / 2
     return midpoint, "midpoint_fallback"
@@ -491,12 +524,15 @@ def build_row(
         if resolution_at is None or resolution_at < eligible_after:
             return None, "pre_eligible"
 
+    market_seed = str(first_present(market, ("id", "conditionId", "condition_id", "slug")) or "")
     cutoff, cutoff_policy = choose_cutoff(
         created_at,
         resolution_at,
-        horizon_days=args.horizon_days,
+        horizon_grid=args.horizon_grid_list,
         min_after_start_hours=args.min_after_start_hours,
         min_before_resolution_hours=args.min_before_resolution_hours,
+        min_cutoff=parse_ts(args.eligible_after) if args.eligible_after else None,
+        seed_key=market_seed,
     )
     if cutoff is None:
         return None, cutoff_policy
@@ -538,6 +574,7 @@ def build_row(
         "token_id": token_ids[yes_i],
         "condition_id": condition_id,
         "category": category,
+        "question_template": normalize_template(question),
         "volume": volume,
         "price_at_cutoff": None,
         "price_history": [],
@@ -574,38 +611,97 @@ def normalize_question(question: str) -> str:
     return q
 
 
+_TEMPLATE_MONTH_RE = re.compile(
+    r"\b(january|february|march|april|may|june|july|august|september|october|november|december|"
+    r"jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\b",
+    re.IGNORECASE,
+)
+
+
+def normalize_template(question: str) -> str:
+    """Strip numbers/dates so recurring market families collapse to one key.
+
+    e.g. 'Will Trump post 175-199 Truth Social posts from Jun 20 to Jun 27?'
+    and its 57 siblings all map to the same template.
+    """
+    q = normalize_question(question)
+    q = re.sub(r"\$?\d[\d,]*(\.\d+)?\s*[km%]?", "<n>", q)
+    q = _TEMPLATE_MONTH_RE.sub("<m>", q)
+    return re.sub(r"\s+", " ", q).strip()
+
+
+def category_frac_cap(cat: str, args: argparse.Namespace) -> float:
+    if cat == "sports":
+        return args.max_sports_frac
+    if cat == "crypto_finance":
+        return min(args.max_category_frac, args.max_crypto_frac)
+    if cat == "weather_climate":
+        return min(args.max_category_frac, args.max_weather_frac)
+    return args.max_category_frac
+
+
 class BalancedSelector:
-    """Incremental category-capped selection (highest-volume first)."""
+    """Incremental category- and template-capped selection (highest-volume first).
+
+    Category caps here are computed against target_total, so an under-filled
+    build can still overshoot fractions — enforce_fraction_caps() trims against
+    the FINAL total afterwards.
+    """
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.selected: list[dict[str, Any]] = []
         self.counts: Counter[str] = Counter()
-        self.sports_cap = int(args.target_total * args.max_sports_frac)
-        self.category_cap = max(1, int(args.target_total * args.max_category_frac))
-        self.crypto_cap = max(1, int(args.target_total * args.max_crypto_frac))
-        self.weather_cap = max(1, int(args.target_total * args.max_weather_frac))
+        self.template_counts: Counter[str] = Counter()
 
     def _cap_for(self, cat: str) -> int:
-        if cat == "sports":
-            return self.sports_cap
-        if cat == "crypto_finance":
-            return min(self.category_cap, self.crypto_cap)
-        if cat == "weather_climate":
-            return min(self.category_cap, self.weather_cap)
-        return self.category_cap
+        return max(1, int(self.args.target_total * category_frac_cap(cat, self.args)))
 
     def wants(self, row: dict[str, Any]) -> bool:
-        cat = row["category"]
-        return self.counts[cat] < self._cap_for(cat)
+        tpl = row.get("question_template") or ""
+        if tpl and self.template_counts[tpl] >= self.args.max_per_template:
+            return False
+        return self.counts[row["category"]] < self._cap_for(row["category"])
 
     def add(self, row: dict[str, Any]) -> None:
         self.selected.append(row)
         self.counts[row["category"]] += 1
+        tpl = row.get("question_template") or ""
+        if tpl:
+            self.template_counts[tpl] += 1
 
     @property
     def full(self) -> bool:
         return len(self.selected) >= self.args.target_total
+
+
+def enforce_fraction_caps(
+    selected: list[dict[str, Any]], args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    """Trim over-cap categories so fractions hold against the FINAL total.
+
+    Repeatedly drops the lowest-volume row from the most over-cap category;
+    each drop shrinks the total, so caps are recomputed until all fit — or
+    until min_total is reached, where caps relax softly rather than letting
+    scarce categories (geo/macro) drag the whole dataset toward zero.
+    """
+    rows = sorted(selected, key=lambda r: -(as_float(r.get("volume")) or 0.0))
+    counts = Counter(r["category"] for r in rows)
+    while len(rows) > max(0, args.min_total):
+        n = len(rows)
+        over = {
+            cat: counts[cat] - max(1, int(category_frac_cap(cat, args) * n))
+            for cat in counts
+        }
+        cat, excess = max(over.items(), key=lambda x: x[1])
+        if excess <= 0:
+            break
+        for i in range(len(rows) - 1, -1, -1):
+            if rows[i]["category"] == cat:
+                rows.pop(i)
+                counts[cat] -= 1
+                break
+    return rows
 
 
 def temporal_split(rows: list[dict[str, Any]], train_frac: float, val_frac: float) -> None:
@@ -633,14 +729,34 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]], *, slim: bool = False) -
 
 def main() -> None:
     args = parse_args()
+    args.horizon_grid_list = sorted(
+        float(h) for h in str(args.horizon_grid).split(",") if h.strip()
+    )
     candidates: list[Candidate] = []
     reject_counts: Counter[str] = Counter()
     seen_market_ids: set[str] = set()
     seen_questions: set[str] = set()
     scanned_events = 0
     scanned_markets = 0
+    out_dir = ROOT / args.out_dir if not Path(args.out_dir).is_absolute() else Path(args.out_dir)
 
-    for event in iter_events(args):
+    if args.from_candidates:
+        for line in open(args.from_candidates):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            volume = as_float(row.get("volume")) or 0.0
+            horizon = as_float(row.get("horizon_days")) or 0.0
+            candidates.append(Candidate(
+                row=row,
+                sort_key=(math.log1p(volume), horizon, str(row["cutoff_date"])),
+            ))
+        print(f"loaded {len(candidates)} candidates from {args.from_candidates} (scan skipped)")
+        events_iter = []
+    else:
+        events_iter = iter_events(args)
+
+    for event in events_iter:
         scanned_events += 1
         for market in extract_markets(event):
             scanned_markets += 1
@@ -660,11 +776,12 @@ def main() -> None:
             if qkey:
                 seen_questions.add(qkey)
             volume = as_float(row.get("volume")) or 0.0
-            # Prefer longer-horizon, high-volume markets when ranking candidates.
+            # Volume-first ranking: horizons are already stratified by the grid
+            # sampler, so ranking by horizon would undo the mix.
             horizon = as_float(row.get("horizon_days")) or 0.0
             candidates.append(Candidate(
                 row=row,
-                sort_key=(horizon, math.log1p(volume), str(row["cutoff_date"])),
+                sort_key=(math.log1p(volume), horizon, str(row["cutoff_date"])),
             ))
 
         if scanned_events % 200 == 0:
@@ -672,6 +789,11 @@ def main() -> None:
                 f"scanned_events={scanned_events} scanned_markets={scanned_markets} "
                 f"candidates={len(candidates)} rejects={sum(reject_counts.values())}"
             )
+
+    if not args.from_candidates and not args.dry_run:
+        # Persist pre-price candidates so selection can be re-tuned without a re-scan.
+        write_jsonl(out_dir / "candidates.jsonl", [c.row for c in candidates])
+        print(f"cached {len(candidates)} candidates to {out_dir / 'candidates.jsonl'}")
 
     # Price pass: fetch CLOB history for the best candidates until target met.
     candidates.sort(key=lambda c: c.sort_key, reverse=True)
@@ -708,10 +830,13 @@ def main() -> None:
                 print(f"price pass: {min(idx, len(candidates))}/{len(candidates)} candidates, "
                       f"selected={len(selector.selected)}")
 
-    selected = selector.selected
+    pre_trim = len(selector.selected)
+    pre_trim_categories = dict(Counter(r["category"] for r in selector.selected))
+    selected = enforce_fraction_caps(selector.selected, args)
+    if len(selected) < pre_trim:
+        print(f"fraction-cap trim: {pre_trim} -> {len(selected)} rows")
     temporal_split(selected, args.train_frac, args.val_frac)
 
-    out_dir = ROOT / args.out_dir if not Path(args.out_dir).is_absolute() else Path(args.out_dir)
     summary = {
         "created_at": iso(datetime.now(timezone.utc)),
         "args": {k: v for k, v in vars(args).items() if not k.startswith("_")},
@@ -727,6 +852,16 @@ def main() -> None:
             sorted(as_float(r.get("horizon_days")) or 0.0 for r in selected)[len(selected) // 2]
             if selected else None
         ),
+        "horizon_buckets": dict(Counter(
+            "<=7d" if h <= 7 else "8-14d" if h <= 14 else "15-30d" if h <= 30
+            else "31-60d" if h <= 60 else "61-90d" if h <= 90 else ">90d"
+            for h in ((as_float(r.get("horizon_days")) or 0.0) for r in selected)
+        )),
+        "repeated_template_rows": sum(
+            c for c in Counter(r.get("question_template") for r in selected).values() if c > 1
+        ),
+        "pre_trim_selected": pre_trim,
+        "pre_trim_categories": pre_trim_categories,
         "rejects": dict(reject_counts),
     }
     print(json.dumps(summary, indent=2, default=str))

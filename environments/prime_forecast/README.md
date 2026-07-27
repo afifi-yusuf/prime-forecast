@@ -2,7 +2,7 @@
 
 Agentic forecasting RLVR environment for [verifiers](https://github.com/PrimeIntellect-ai/verifiers) / Prime Intellect Hosted Training.
 
-A multi-turn agent receives a resolved Polymarket binary question with a historical cutoff date, researches it with live cutoff-safe tools (AgentCore or Exa web search, yfinance, FRED, DBnomics, Wikipedia-as-of-cutoff, trend analysis), maintains a BLF-style structured belief state, and submits `P(YES)`. Reward is positive-shifted Brier against the real outcome:
+A multi-turn agent receives a resolved Polymarket binary question with a historical cutoff date, researches it with live cutoff-safe tools (Firecrawl/Brave/Tavily/AgentCore/Exa web search, yfinance, FRED, DBnomics, Wikipedia-as-of-cutoff, trend analysis), maintains a BLF-style structured belief state, and submits `P(YES)`. Reward is positive-shifted Brier against the real outcome:
 
 ```
 reward = 1 - (p - y)^2        (0.55 soft no-submit)
@@ -22,7 +22,8 @@ Missing submission scores 0.55 (below always-0.5) so stalling is not a safe rewa
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `PF_SEARCH_BACKEND` | recommended | `brave` \| `tavily` \| `agentcore` \| `exa` \| `none` |
+| `PF_SEARCH_BACKEND` | recommended | `firecrawl` \| `brave` \| `tavily` \| `agentcore` \| `exa` \| `none` |
+| `FIRECRAWL_API_KEY` | for firecrawl | Firecrawl Search API (tbs date-range cutoff; 1 credit/search) |
 | `BRAVE_API_KEY` | for brave | Brave Search API (cheap; leak filter supplies cutoff) |
 | `TAVILY_API_KEY` | for tavily | Tavily Search (free tier; local eval / small smokes) |
 | `AGENTCORE_GATEWAY_URL` | for agentcore | MCP gateway URL from `scripts/setup_agentcore_search.py` |

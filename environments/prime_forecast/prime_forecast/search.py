@@ -1,6 +1,7 @@
 """Web search backends with publish-date filtering + leak filter.
 
 Backends (PF_SEARCH_BACKEND):
+  firecrawl  — Firecrawl Search API (tbs custom date range cutoff)
   brave      — Brave Search API (cheap; no native end-date — leak filter applies)
   tavily     — Tavily Search API (free tier; end_date cutoff)
   exa        — Exa API (supports endPublishedDate)
@@ -8,7 +9,8 @@ Backends (PF_SEARCH_BACKEND):
   none       — disabled (returns empty / error)
 
 Env:
-  PF_SEARCH_BACKEND          — brave | tavily | exa | agentcore | none (auto if unset)
+  PF_SEARCH_BACKEND          — firecrawl | brave | tavily | exa | agentcore | none (auto if unset)
+  FIRECRAWL_API_KEY          — required for firecrawl
   BRAVE_API_KEY              — required for brave
   TAVILY_API_KEY             — required for tavily
   EXA_API_KEY                — required for exa
@@ -21,6 +23,7 @@ Env:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -39,9 +42,10 @@ from prime_forecast.leak_filter import (
 _EXA_URL = "https://api.exa.ai/search"
 _TAVILY_URL = "https://api.tavily.com/search"
 _BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
+_FIRECRAWL_URL = "https://api.firecrawl.dev/v2/search"
 _MAX_TEXT_CHARS = 2000
 _AGENTCORE_TOOL_NAMES = ("WebSearch", "WebSearchTool", "web_search", "web-search")
-_BACKENDS = frozenset({"brave", "tavily", "exa", "agentcore", "none"})
+_BACKENDS = frozenset({"firecrawl", "brave", "tavily", "exa", "agentcore", "none"})
 
 
 def search_backend() -> str:
@@ -51,6 +55,8 @@ def search_backend() -> str:
         return raw
     if os.environ.get("AGENTCORE_GATEWAY_URL") or os.environ.get("AGENTCORE_GATEWAY_ID"):
         return "agentcore"
+    if os.environ.get("FIRECRAWL_API_KEY", "").strip():
+        return "firecrawl"
     if os.environ.get("BRAVE_API_KEY", "").strip():
         return "brave"
     if os.environ.get("TAVILY_API_KEY", "").strip():
@@ -219,6 +225,90 @@ async def search_brave(
                 or ""
             ),
             "text": text[:_MAX_TEXT_CHARS],
+        })
+    raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
+
+
+# -------------------------------------------------------------- Firecrawl
+
+def _firecrawl_web_results(data: Any) -> list[dict]:
+    """Normalize v1 (data: [...]) and v2 (data: {web: [...]}) response shapes."""
+    payload = data.get("data") if isinstance(data, dict) else None
+    if isinstance(payload, dict):
+        payload = payload.get("web") or []
+    if not isinstance(payload, list):
+        return []
+    return [x for x in payload if isinstance(x, dict)]
+
+
+async def search_firecrawl(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Firecrawl Search API. tbs custom date range caps indexing at the cutoff.
+
+    Search-only (no scrapeOptions) to keep per-call credit cost at 1; the agent
+    reads full pages via lookup_url. Publish dates are often absent from search
+    hits, so the tbs provider filter + leak filter carry the cutoff.
+    """
+    api_key = os.environ.get("FIRECRAWL_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("FIRECRAWL_API_KEY not set (required for PF_SEARCH_BACKEND=firecrawl)")
+
+    q = _sanitize_query(query, max_chars=400)
+    if not q:
+        raise ValueError("query empty after sanitization")
+    k = max(1, min(int(num_results), 20))
+
+    payload: dict = {"query": q, "limit": k, "sources": ["web"]}
+    cutoff_dt = parse_ts(str(cutoff_date)[:10]) if cutoff_date else None
+    if cutoff_dt is not None:
+        # Google-style custom date range: only pages dated on or before the cutoff.
+        payload["tbs"] = f"cdr:1,cd_max:{cutoff_dt.month}/{cutoff_dt.day}/{cutoff_dt.year}"
+
+    # Concurrent rollouts hit Firecrawl's per-minute rate limit; back off on
+    # 429/5xx instead of surfacing an error rollout with zero context.
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for attempt in range(4):
+            r = await client.post(_FIRECRAWL_URL, json=payload, headers=headers)
+            if r.status_code == 429 or r.status_code >= 500:
+                if attempt == 3:
+                    r.raise_for_status()
+                retry_after = r.headers.get("Retry-After")
+                try:
+                    delay = min(float(retry_after), 30.0) if retry_after else 2.0 * 2**attempt
+                except ValueError:
+                    delay = 2.0 * 2**attempt
+                await asyncio.sleep(delay)
+                continue
+            r.raise_for_status()
+            data = r.json()
+            break
+
+    items = []
+    for item in _firecrawl_web_results(data):
+        meta = item.get("metadata") or {}
+        items.append({
+            "title": item.get("title") or meta.get("title") or "",
+            "url": item.get("url") or meta.get("sourceURL") or "",
+            "publishedDate": (
+                item.get("publishedDate")
+                or meta.get("publishedDate")
+                or meta.get("publishedTime")
+                or meta.get("article:published_time")
+                or ""
+            ),
+            "text": (
+                item.get("description")
+                or item.get("markdown")
+                or meta.get("description")
+                or ""
+            )[:_MAX_TEXT_CHARS],
         })
     raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
     return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
@@ -448,8 +538,12 @@ async def web_search(
     backend = search_backend()
     if backend == "none":
         raise ValueError(
-            "No search backend configured. Set PF_SEARCH_BACKEND=brave|tavily|exa|agentcore "
+            "No search backend configured. Set PF_SEARCH_BACKEND=firecrawl|brave|tavily|exa|agentcore "
             "and the matching credentials."
+        )
+    if backend == "firecrawl":
+        return await search_firecrawl(
+            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
         )
     if backend == "brave":
         return await search_brave(

@@ -15,34 +15,60 @@ def test_search_backend_prefers_explicit_env(monkeypatch):
     assert search.search_backend() == "agentcore"
 
 
+def _clear_backend_env(monkeypatch, *keep: str) -> None:
+    for var in ("PF_SEARCH_BACKEND", "AGENTCORE_GATEWAY_URL", "AGENTCORE_GATEWAY_ID",
+                "FIRECRAWL_API_KEY", "BRAVE_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY"):
+        if var not in keep:
+            monkeypatch.delenv(var, raising=False)
+
+
+def test_search_backend_auto_firecrawl(monkeypatch):
+    _clear_backend_env(monkeypatch, "FIRECRAWL_API_KEY")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-x")
+    assert search.search_backend() == "firecrawl"
+
+
 def test_search_backend_auto_brave(monkeypatch):
-    monkeypatch.delenv("PF_SEARCH_BACKEND", raising=False)
-    monkeypatch.delenv("AGENTCORE_GATEWAY_URL", raising=False)
-    monkeypatch.delenv("AGENTCORE_GATEWAY_ID", raising=False)
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    _clear_backend_env(monkeypatch, "BRAVE_API_KEY")
     monkeypatch.setenv("BRAVE_API_KEY", "BSA-x")
     assert search.search_backend() == "brave"
 
 
 def test_search_backend_auto_tavily(monkeypatch):
-    monkeypatch.delenv("PF_SEARCH_BACKEND", raising=False)
-    monkeypatch.delenv("AGENTCORE_GATEWAY_URL", raising=False)
-    monkeypatch.delenv("AGENTCORE_GATEWAY_ID", raising=False)
-    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
-    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    _clear_backend_env(monkeypatch, "TAVILY_API_KEY")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-x")
     assert search.search_backend() == "tavily"
 
 
 def test_search_backend_auto_exa(monkeypatch):
-    monkeypatch.delenv("PF_SEARCH_BACKEND", raising=False)
-    monkeypatch.delenv("AGENTCORE_GATEWAY_URL", raising=False)
-    monkeypatch.delenv("AGENTCORE_GATEWAY_ID", raising=False)
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    _clear_backend_env(monkeypatch, "EXA_API_KEY")
     monkeypatch.setenv("EXA_API_KEY", "x")
     assert search.search_backend() == "exa"
+
+
+def test_firecrawl_web_results_v2_shape():
+    data = {"success": True, "data": {"web": [
+        {"title": "Fed holds rates", "url": "https://example.com/a",
+         "description": "The Fed held rates steady."},
+        "not-a-dict",
+    ]}}
+    items = search._firecrawl_web_results(data)
+    assert len(items) == 1
+    assert items[0]["url"] == "https://example.com/a"
+
+
+def test_firecrawl_web_results_v1_shape():
+    data = {"success": True, "data": [
+        {"title": "A", "url": "https://example.com/a", "description": "x"},
+        {"title": "B", "url": "https://example.com/b", "description": "y"},
+    ]}
+    assert len(search._firecrawl_web_results(data)) == 2
+
+
+def test_firecrawl_web_results_bad_shapes():
+    assert search._firecrawl_web_results({}) == []
+    assert search._firecrawl_web_results({"data": None}) == []
+    assert search._firecrawl_web_results([1, 2]) == []
 
 
 def test_agentcore_gateway_url_from_id(monkeypatch):

@@ -287,7 +287,7 @@ class ForecastEnv(vf.StatefulToolEnv):
     ) -> str:
         """Search the pre-cutoff web. Post-cutoff results are filtered automatically.
 
-        Backend is selected by PF_SEARCH_BACKEND (brave | tavily | exa | agentcore).
+        Backend is selected by PF_SEARCH_BACKEND (firecrawl | brave | tavily | exa | agentcore).
         Each rollout is limited to max_web_searches calls to control API spend.
 
         Args:
@@ -659,7 +659,9 @@ def _ensure_search_keys() -> None:
     import os
 
     backend = search.search_backend()
-    if backend == "brave":
+    if backend == "firecrawl":
+        vf.ensure_keys(["FIRECRAWL_API_KEY"])
+    elif backend == "brave":
         vf.ensure_keys(["BRAVE_API_KEY"])
     elif backend == "tavily":
         vf.ensure_keys(["TAVILY_API_KEY"])
