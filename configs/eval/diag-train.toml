@@ -1,0 +1,21 @@
+# Test-split evaluation conditions for the paper (Turtel-comparable protocol).
+# Usage (model/name filled per condition):
+#   set -a && source secrets.env && set +a
+#   prime eval run configs/eval/test-conditions.toml -m <MODEL> --plain --disable-tui
+# Conditions:
+#   A adapter  + market tools     B adapter  + no market tools
+#   C base 35B + market tools     D base 35B + no market tools
+# Toggle market tools via the env args below per run.
+
+env_dir_path = "environments"
+provider = "prime"
+model = "Qwen/Qwen3.5-35B-A3B"  # override with -m for the adapter deployment
+num_examples = 24
+rollouts_per_example = 1
+max_concurrent = 8
+max_tokens = 12288
+save_results = true
+
+[[eval]]
+id = "prime-forecast"
+args = { split = "train", eval_split = "train", max_turns = 8, max_web_searches = 2, include_market_tools = true }
