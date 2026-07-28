@@ -55,7 +55,9 @@ prime deployments create <adapter-id>
 
 ## Web search
 
-Backends via `PF_SEARCH_BACKEND`: **`firecrawl`** (default; `tbs` date-range cutoff, search-only = 1 credit/call), **`tavily`** (free tier; good for local eval), **`agentcore`** (AWS, us-east-1, ~$7/1k; needs IAM gateway), **`brave`**, **`exa`**. RL configs set `max_web_searches=2` to cap spend.
+Backends via `PF_SEARCH_BACKEND`: **`firecrawl`** (default; `tbs` date-range cutoff, search-only = 1 credit/call), **`tavily`** (free tier; good for local eval), **`agentcore`** (AWS, us-east-1, ~$7/1k; needs IAM gateway), **`brave`**, **`exa`**. RL configs cap `max_web_searches` to control spend.
+
+Results are cached post-leak-filter (`PF_SEARCH_CACHE_DIR`): repeat queries cost zero search credits and zero Bedrock filter calls, and the cache dir is a publishable corpus of every (query, cutoff) → filtered-context pair the agent saw.
 
 
 ## Reward

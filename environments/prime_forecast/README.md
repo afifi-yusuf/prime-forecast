@@ -32,6 +32,17 @@ Missing submission scores 0.55 (below always-0.5) so stalling is not a safe rewa
 | `EXA_API_KEY` | for exa | Exa web search |
 | `FRED_API_KEY` | optional | `fetch_fred_series` tool |
 | `PF_LLM_FILTER` | optional | force LLM filter on/off (`1`/`0`); auto-detects AWS creds by default |
+| `PF_FILTER_MODEL` | optional | leak-filter model (default Claude Haiku 4.5 — benchmarked best; `qwen.qwen3-32b-v1:0` is the validated ~7x-cheaper fallback: zero false-KEEPs, ~12% over-drop) |
+| `PF_SEARCH_CACHE` | optional | `0` disables the search cache (default on) |
+| `PF_SEARCH_CACHE_DIR` | optional | cache/corpus location (default: system temp) |
+
+## Search cache
+
+`web_search` results are cached **post-leak-filter**, keyed on (backend, cutoff,
+normalized query). A hit costs zero search-API credits and zero Bedrock filter
+calls — GRPO groups re-searching the same phrasing get identical context. The
+cache directory doubles as a publishable corpus: each entry stores the query,
+cutoff, and the filtered results the agent was shown.
 
 ## Environment args
 

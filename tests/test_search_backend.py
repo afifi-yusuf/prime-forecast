@@ -100,6 +100,56 @@ def test_parse_agentcore_payload_json_results():
 
 
 @pytest.mark.asyncio
+async def test_search_cache_hit_skips_backend(monkeypatch, tmp_path):
+    calls = {"n": 0}
+
+    async def fake_firecrawl(query, *, cutoff_date, num_results=10, question=""):
+        calls["n"] += 1
+        return "raw-blocks", [{"title": "t", "url": "u"}], {"mode": "llm"}
+
+    monkeypatch.setenv("PF_SEARCH_BACKEND", "firecrawl")
+    monkeypatch.setenv("PF_SEARCH_CACHE", "1")
+    monkeypatch.setenv("PF_SEARCH_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(search, "search_firecrawl", fake_firecrawl)
+    monkeypatch.setattr(search, "_MEM_CACHE", {})
+
+    r1 = await search.web_search("Fed June meeting", cutoff_date="2026-05-10")
+    r2 = await search.web_search("  fed JUNE meeting ", cutoff_date="2026-05-10")
+    assert calls["n"] == 1  # second call: normalized-query cache hit
+    assert r1[0] == r2[0] == "raw-blocks"
+    assert r2[2]["cache"] == "hit"
+
+    # disk persistence survives a cold in-memory cache
+    monkeypatch.setattr(search, "_MEM_CACHE", {})
+    r3 = await search.web_search("Fed June meeting", cutoff_date="2026-05-10")
+    assert calls["n"] == 1
+    assert r3[1] == [{"title": "t", "url": "u"}]
+
+    # different cutoff = different key
+    await search.web_search("Fed June meeting", cutoff_date="2026-06-01")
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_search_cache_disabled(monkeypatch, tmp_path):
+    calls = {"n": 0}
+
+    async def fake_firecrawl(query, *, cutoff_date, num_results=10, question=""):
+        calls["n"] += 1
+        return "raw", [], {"mode": "llm"}
+
+    monkeypatch.setenv("PF_SEARCH_BACKEND", "firecrawl")
+    monkeypatch.setenv("PF_SEARCH_CACHE", "0")
+    monkeypatch.setenv("PF_SEARCH_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(search, "search_firecrawl", fake_firecrawl)
+    monkeypatch.setattr(search, "_MEM_CACHE", {})
+
+    await search.web_search("q", cutoff_date="2026-05-10")
+    await search.web_search("q", cutoff_date="2026-05-10")
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
 async def test_web_search_budget(monkeypatch, sample_row):
     from prime_forecast.env import ForecastEnv, load_environment
 

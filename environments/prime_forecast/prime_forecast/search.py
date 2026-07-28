@@ -525,6 +525,59 @@ async def search_agentcore(
     return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
 
 
+# ------------------------------------------------------------------ cache
+
+def _cache_enabled() -> bool:
+    return os.environ.get("PF_SEARCH_CACHE", "1").strip().lower() not in ("0", "false", "no")
+
+
+def _cache_dir() -> str:
+    import tempfile
+    d = os.environ.get("PF_SEARCH_CACHE_DIR", "").strip()
+    if not d:
+        d = os.path.join(tempfile.gettempdir(), "prime_forecast_search_cache")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _cache_key(backend: str, query: str, cutoff_date: str) -> str:
+    import hashlib
+    q = re.sub(r"\s+", " ", sanitize_search_query(query).lower()).strip()
+    return hashlib.sha1(f"{backend}|{str(cutoff_date)[:10]}|{q}".encode()).hexdigest()
+
+
+_MEM_CACHE: dict[str, tuple[str, list[dict]]] = {}
+
+
+def _cache_get(key: str) -> tuple[str, list[dict]] | None:
+    if key in _MEM_CACHE:
+        return _MEM_CACHE[key]
+    path = os.path.join(_cache_dir(), f"{key}.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        hit = (data["raw"], data["parsed"])
+        _MEM_CACHE[key] = hit
+        return hit
+    except (OSError, json.JSONDecodeError, KeyError):
+        return None
+
+
+def _cache_put(key: str, raw: str, parsed: list[dict], *, query: str, cutoff_date: str) -> None:
+    _MEM_CACHE[key] = (raw, parsed)
+    path = os.path.join(_cache_dir(), f"{key}.json")
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "w") as f:
+            # query/cutoff kept alongside the results so the cache dir doubles
+            # as a publishable corpus of everything the agent was shown.
+            json.dump({"query": query, "cutoff_date": str(cutoff_date),
+                       "raw": raw, "parsed": parsed}, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 # -------------------------------------------------------------- dispatcher
 
 async def web_search(
@@ -534,34 +587,43 @@ async def web_search(
     num_results: int = 10,
     question: str = "",
 ) -> tuple[str, list[dict], dict]:
-    """Dispatch to the configured search backend."""
+    """Dispatch to the configured search backend.
+
+    Results are cached post-leak-filter, keyed on (backend, cutoff, normalized
+    query): a hit costs zero search credits AND zero Bedrock filter calls, and
+    GRPO groups re-searching the same phrasing get identical context. Disable
+    with PF_SEARCH_CACHE=0; corpus lives in PF_SEARCH_CACHE_DIR.
+    """
     backend = search_backend()
     if backend == "none":
         raise ValueError(
             "No search backend configured. Set PF_SEARCH_BACKEND=firecrawl|brave|tavily|exa|agentcore "
             "and the matching credentials."
         )
-    if backend == "firecrawl":
-        return await search_firecrawl(
-            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
-        )
-    if backend == "brave":
-        return await search_brave(
-            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
-        )
-    if backend == "tavily":
-        return await search_tavily(
-            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
-        )
-    if backend == "agentcore":
-        return await search_agentcore(
-            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
-        )
-    if backend == "exa":
-        return await search_exa(
-            query, cutoff_date=cutoff_date, num_results=num_results, question=question,
-        )
-    raise ValueError(f"Unknown PF_SEARCH_BACKEND={backend!r}")
+    impl = {
+        "firecrawl": search_firecrawl,
+        "brave": search_brave,
+        "tavily": search_tavily,
+        "agentcore": search_agentcore,
+        "exa": search_exa,
+    }.get(backend)
+    if impl is None:
+        raise ValueError(f"Unknown PF_SEARCH_BACKEND={backend!r}")
+
+    if _cache_enabled():
+        key = _cache_key(backend, query, cutoff_date)
+        hit = _cache_get(key)
+        if hit is not None:
+            raw, parsed = hit
+            return raw, parsed, {"mode": "cache", "cache": "hit"}
+
+    raw, parsed, debug = await impl(
+        query, cutoff_date=cutoff_date, num_results=num_results, question=question,
+    )
+    if _cache_enabled():
+        _cache_put(key, raw, parsed, query=query, cutoff_date=cutoff_date)
+        debug = {**debug, "cache": "miss"}
+    return raw, parsed, debug
 
 
 async def fetch_url_text(url: str, *, max_chars: int = 8000) -> str:
