@@ -66,9 +66,14 @@ Rules (apply in order):
 1. Published date AFTER {cutoff} → DROP (includes previews published later).
 2. Post-cutoff outcomes, results, scores, resolutions, final reports → DROP.
 3. Facts about events dated AFTER {cutoff} → DROP.
-4. Pre-cutoff news, previews PUBLISHED ON OR BEFORE {cutoff} → KEEP.
+4. NO publish date shown? Estimate one from the content's reference frame:
+   "what to expect" previews are written DAYS before the event they preview;
+   reactions and wrap-ups are written after it. If the estimated publish date
+   falls after {cutoff} → DROP. General analysis whose latest referenced fact
+   predates {cutoff} may be kept.
+5. Pre-cutoff news, previews PUBLISHED ON OR BEFORE {cutoff} → KEEP.
    (A preview of a future event is KEEP only if it was published by the cutoff.)
-5. When unsure → DROP.
+6. When unsure → DROP. Dropping a good result is cheap; keeping a leaky one is not.
 
 OUTPUT: Reply ONLY with numbered lines (no preamble). Example:
 1: KEEP
