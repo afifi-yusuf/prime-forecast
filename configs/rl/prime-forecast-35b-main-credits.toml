@@ -1,0 +1,36 @@
+# Credit-funded 35B main run: sized to ~5.1k remaining Firecrawl credits.
+# 45 steps x 32 x 8 = 11,520 rollouts. Worst case (0% cache hits) ~6.3k
+# credits — would exhaust around step 40; adapters/checkpoints every 10
+# steps bound the loss. Expected (cache hits on repeat queries) ~4-4.5k.
+# Runs on env 0.1.12: post-filter search cache + sharpened leak filter.
+# Submit with:  prime train run configs/rl/prime-forecast-35b-main-credits.toml
+
+model = "Qwen/Qwen3.5-35B-A3B"
+max_steps = 45
+batch_size = 32
+rollouts_per_example = 8
+env_file = ["../../secrets.env"]
+
+[sampling]
+max_tokens = 12288  # thinking + up to 8 tool turns
+enable_thinking = true
+
+[[env]]
+id = "yafifi/prime-forecast"
+args = { split = "train", max_turns = 8, max_web_searches = 2, include_market_tools = true, crowd_copy_penalty = 0.20, crowd_copy_eps = 0.02 }
+
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[val]
+num_examples = 16
+rollouts_per_example = 1
+interval = 10
+
+[checkpoints]
+interval = 10
+
+[adapters]
+interval = 10
+keep_last = 3
