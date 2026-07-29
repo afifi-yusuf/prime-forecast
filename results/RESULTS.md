@@ -15,6 +15,15 @@ Step-30 checkpoint evaluated **through Prime's own inference stack** (run
 search via self-hosted SearXNG, every rollout reported via results webhook
 (`results/platform_eval_step30_test.jsonl` — raw data, 160/160 questions).
 
+**Cross-paper primary metric** (soft-Brier, all 160 questions, non-answers
+imputed at 0.5 — identical to Turtel et al.'s 0.25-penalty convention):
+**trained 0.216 [0.186, 0.247] · base 0.236 · crowd 0.191.**
+Submit rate below is an environment-internal compliance diagnostic (analogous
+to Turtel's unparseable-output rate), not a headline skill metric.
+Reference: raw v3 test split archived as `results/test_split_v3.jsonl` —
+analyses of `platform_eval_step30_test.jsonl` must filter against it (the
+live `data/` splits have since been rebuilt to v4).
+
 | metric | trained (step-30) | base (untrained) | crowd |
 |---|---|---|---|
 | submit rate | **94%** (150/160) | 31% | — |
