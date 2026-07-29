@@ -87,6 +87,26 @@ def _parse_info(info) -> dict:
 
 # ------------------------------------------------------------------ rewards
 
+async def _post_result_webhook(payload: dict) -> None:
+    """Fire-and-forget rollout result POST (PF_RESULTS_WEBHOOK).
+
+    Lets platform-hosted evals report complete per-rollout data to an endpoint
+    we control — the platform's own rollout storage keeps only a small sample.
+    Failures are swallowed: reporting must never affect training/eval."""
+    import os
+
+    url = os.environ.get("PF_RESULTS_WEBHOOK", "").strip()
+    if not url:
+        return
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(url, json=payload)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def forecast_reward(state: vf.State, info) -> float:
     """Main reward: positive-shifted Brier; soft no-submit below always-0.5.
 
@@ -99,6 +119,20 @@ async def forecast_reward(state: vf.State, info) -> float:
     """
     p = extract_probability(state)
     if p is None:
+        meta = _parse_info(info)
+        await _post_result_webhook({
+            "market_id": meta.get("market_id"),
+            "question": (meta.get("question") or "")[:200],
+            "cutoff_date": meta.get("cutoff_date"),
+            "outcome": int(meta.get("outcome", 0)),
+            "price_at_cutoff": meta.get("price_at_cutoff"),
+            "predicted_prob": None,
+            "submitted": False,
+            "reward": NO_SUBMIT_REWARD,
+            "brier": None,
+            "research_tool_calls": int(state.get("research_tool_calls", 0)),
+            "web_search_calls": int(state.get("web_search_calls", 0)),
+        })
         return NO_SUBMIT_REWARD
     meta = _parse_info(info)
     y = 1.0 if int(meta.get("outcome", 0)) == 1 else 0.0
@@ -112,6 +146,19 @@ async def forecast_reward(state: vf.State, info) -> float:
                 r = max(0.0, r - penalty)
         except (TypeError, ValueError):
             pass
+    await _post_result_webhook({
+        "market_id": meta.get("market_id"),
+        "question": (meta.get("question") or "")[:200],
+        "cutoff_date": meta.get("cutoff_date"),
+        "outcome": int(meta.get("outcome", 0)),
+        "price_at_cutoff": crowd,
+        "predicted_prob": p,
+        "submitted": bool(state.get("submitted")),
+        "reward": r,
+        "brier": (p - y) ** 2,
+        "research_tool_calls": int(state.get("research_tool_calls", 0)),
+        "web_search_calls": int(state.get("web_search_calls", 0)),
+    })
     return r
 
 

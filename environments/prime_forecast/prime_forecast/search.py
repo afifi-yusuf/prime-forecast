@@ -45,7 +45,7 @@ _BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
 _FIRECRAWL_URL = "https://api.firecrawl.dev/v2/search"
 _MAX_TEXT_CHARS = 2000
 _AGENTCORE_TOOL_NAMES = ("WebSearch", "WebSearchTool", "web_search", "web-search")
-_BACKENDS = frozenset({"firecrawl", "brave", "tavily", "exa", "agentcore", "none"})
+_BACKENDS = frozenset({"firecrawl", "brave", "tavily", "exa", "agentcore", "searxng", "none"})
 
 
 def search_backend() -> str:
@@ -63,6 +63,8 @@ def search_backend() -> str:
         return "tavily"
     if os.environ.get("EXA_API_KEY", "").strip():
         return "exa"
+    if os.environ.get("SEARXNG_URL", "").strip():
+        return "searxng"
     return "none"
 
 
@@ -578,6 +580,46 @@ def _cache_put(key: str, raw: str, parsed: list[dict], *, query: str, cutoff_dat
         pass
 
 
+# ---------------------------------------------------------------- SearXNG
+
+async def search_searxng(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Self-hosted SearXNG metasearch (SEARXNG_URL). No native date filter —
+    the leak-filter stack carries the cutoff, as with Brave. Instance must
+    allow format=json in its settings."""
+    base = os.environ.get("SEARXNG_URL", "").strip().rstrip("/")
+    if not base:
+        raise ValueError("SEARXNG_URL not set (required for PF_SEARCH_BACKEND=searxng)")
+
+    q = _sanitize_query(query, max_chars=400)
+    if not q:
+        raise ValueError("query empty after sanitization")
+    k = max(1, min(int(num_results), 20))
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{base}/search", params={
+            "q": q, "format": "json", "language": "en", "safesearch": 0,
+        })
+        r.raise_for_status()
+        data = r.json()
+
+    items = []
+    for item in (data.get("results") or [])[: k * 2]:
+        items.append({
+            "title": item.get("title", "") or "",
+            "url": item.get("url", "") or "",
+            "publishedDate": item.get("publishedDate") or "",
+            "text": (item.get("content") or "")[:_MAX_TEXT_CHARS],
+        })
+    raw, parsed = _build_from_items(items[: k + 5], cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
+
+
 # -------------------------------------------------------------- dispatcher
 
 async def web_search(
@@ -606,6 +648,7 @@ async def web_search(
         "tavily": search_tavily,
         "agentcore": search_agentcore,
         "exa": search_exa,
+        "searxng": search_searxng,
     }.get(backend)
     if impl is None:
         raise ValueError(f"Unknown PF_SEARCH_BACKEND={backend!r}")
