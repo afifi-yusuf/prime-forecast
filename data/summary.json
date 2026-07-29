@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-07-27T18:39:06.548782Z",
+  "created_at": "2026-07-29T21:42:26.114316Z",
   "args": {
     "out_dir": "data",
     "target_total": 5000,
@@ -9,10 +9,12 @@
     "eligible_after": "2026-03-02",
     "eligible_before": "",
     "horizon_grid": "7,14,30,60,90",
+    "horizon_mode": "uniform",
     "min_horizon_days": 5.0,
     "max_per_template": 5,
-    "min_total": 1600,
-    "from_candidates": "",
+    "max_per_event": 4,
+    "min_total": 3000,
+    "from_candidates": "data/candidates.jsonl",
     "min_before_resolution_hours": 24.0,
     "min_after_start_hours": 24.0,
     "price_window_days": 7.0,
@@ -28,8 +30,8 @@
     "train_frac": 0.8,
     "val_frac": 0.1,
     "fetch_prices": true,
-    "workers": 8,
-    "sleep": 0.02,
+    "workers": 3,
+    "sleep": 0.15,
     "install": true,
     "dry_run": false,
     "horizon_grid_list": [
@@ -40,66 +42,54 @@
       90.0
     ]
   },
-  "scanned_events": 522161,
-  "scanned_markets": 1485198,
-  "candidates": 7407,
-  "selected": 1600,
+  "scanned_events": 0,
+  "scanned_markets": 0,
+  "candidates": 15270,
+  "selected": 2642,
   "categories": {
-    "politics_policy": 532,
-    "ai_tech": 247,
-    "crypto_finance": 467,
-    "other": 91,
-    "macro_economics": 92,
-    "weather_climate": 75,
-    "geopolitics": 96
+    "crypto_finance": 900,
+    "politics_policy": 1030,
+    "macro_economics": 96,
+    "ai_tech": 277,
+    "weather_climate": 229,
+    "other": 74,
+    "geopolitics": 36
   },
   "outcomes": {
-    "1": 694,
-    "0": 906
+    "1": 1032,
+    "0": 1610
   },
   "splits": {
-    "train": 1280,
-    "val": 160,
-    "test": 160
+    "train": 2113,
+    "val": 264,
+    "test": 265
   },
   "cutoff_policy": {
-    "horizon_7d": 732,
-    "horizon_14d": 449,
-    "horizon_30d": 280,
-    "horizon_60d": 103,
-    "horizon_90d": 36
+    "uniform": 2642
   },
-  "horizon_days_median": 14.0,
+  "horizon_days_median": 12.142,
   "horizon_buckets": {
-    "<=7d": 732,
-    "8-14d": 449,
-    "15-30d": 280,
-    "31-60d": 103,
-    "61-90d": 36
+    "<=7d": 834,
+    "8-14d": 606,
+    "15-30d": 652,
+    "31-60d": 374,
+    "61-90d": 131,
+    ">90d": 45
   },
-  "repeated_template_rows": 936,
-  "pre_trim_selected": 2400,
+  "repeated_template_rows": 1579,
+  "pre_trim_selected": 2642,
   "pre_trim_categories": {
-    "crypto_finance": 736,
-    "politics_policy": 1063,
-    "geopolitics": 96,
-    "ai_tech": 247,
-    "macro_economics": 92,
-    "weather_climate": 75,
-    "other": 91
+    "crypto_finance": 900,
+    "politics_policy": 1030,
+    "geopolitics": 36,
+    "ai_tech": 277,
+    "weather_climate": 229,
+    "macro_economics": 96,
+    "other": 74
   },
   "rejects": {
-    "sports_excluded": 254349,
-    "not_binary_yes_no": 931367,
-    "low_volume": 199895,
-    "horizon_too_short": 52853,
-    "pre_eligible": 788,
-    "popculture_excluded": 19300,
-    "too_short": 7472,
-    "missing_outcome": 9449,
-    "duplicate_market": 2200,
-    "duplicate_question": 118,
-    "extreme_price": 3737,
-    "missing_price_history": 83
+    "price_fetch_failed:RuntimeError": 309,
+    "extreme_price": 3658,
+    "missing_price_history": 131
   }
 }
