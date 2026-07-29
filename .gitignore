@@ -8,3 +8,4 @@ secrets.env
 outputs/
 wandb/
 .DS_Store
+checkpoints/
