@@ -132,6 +132,11 @@ def parse_args() -> argparse.Namespace:
                    help="Candidate cutoff horizons (days before resolution). One is "
                         "picked per market, hash-stable, among those that fit the "
                         "market's lifetime and the --eligible-after cutoff floor.")
+    p.add_argument("--horizon-mode", choices=["grid", "uniform"], default="uniform",
+                   help="uniform (default): draw the cutoff hash-uniformly within the "
+                        "market's valid window (Turtel et al. 2025 protocol - natural "
+                        "horizon diversity, no grid-infeasibility rejects). grid: "
+                        "sample from --horizon-grid.")
     p.add_argument("--min-horizon-days", type=float, default=5.0,
                    help="Reject rows whose (resolution - cutoff) is shorter than this.")
     p.add_argument("--max-per-template", type=int, default=5,
@@ -426,6 +431,7 @@ def choose_cutoff(
     min_before_resolution_hours: float,
     min_cutoff: datetime | None,
     seed_key: str,
+    min_horizon_days: float = 0.0,
 ) -> tuple[datetime | None, str]:
     """Pick a cutoff by sampling a horizon from the grid (hash-stable per market).
 
@@ -443,20 +449,36 @@ def choose_cutoff(
     if earliest is not None and earliest >= latest:
         return None, "too_short"
 
-    feasible = [
-        h for h in horizon_grid
-        if (cand := resolution_at - timedelta(days=h)) <= latest
-        and (earliest is None or cand >= earliest)
-    ]
-    if feasible:
-        h = feasible[_stable_pick(seed_key, len(feasible))]
-        return resolution_at - timedelta(days=h), f"horizon_{int(h)}d"
+    if horizon_grid:  # grid mode
+        feasible = [
+            h for h in horizon_grid
+            if (cand := resolution_at - timedelta(days=h)) <= latest
+            and (earliest is None or cand >= earliest)
+        ]
+        if feasible:
+            h = feasible[_stable_pick(seed_key, len(feasible))]
+            return resolution_at - timedelta(days=h), f"horizon_{int(h)}d"
+        if earliest is None:
+            return None, "too_short"
+        # Shorter market: use midpoint of the valid interval instead of a very-late cutoff.
+        midpoint = earliest + (latest - earliest) / 2
+        return midpoint, "midpoint_fallback"
 
+    # uniform mode (Turtel et al.): hash-uniform cutoff within [earliest, latest],
+    # with latest pulled back so every draw clears the minimum horizon.
+    if min_horizon_days > 0:
+        latest = min(latest, resolution_at - timedelta(days=min_horizon_days))
+        if earliest is not None and earliest >= latest:
+            return None, "too_short"
     if earliest is None:
-        return None, "too_short"
-    # Shorter market: use midpoint of the valid interval instead of a very-late cutoff.
-    midpoint = earliest + (latest - earliest) / 2
-    return midpoint, "midpoint_fallback"
+        earliest = latest - timedelta(days=90)  # no start date: bound lookback
+        if min_cutoff is not None:
+            earliest = max(earliest, min_cutoff)
+        if earliest >= latest:
+            return None, "too_short"
+    u = _stable_pick(seed_key, 10_000) / 10_000.0
+    cutoff = earliest + (latest - earliest) * u
+    return cutoff, "uniform"
 
 
 def fetch_price_history(token_id: str, cutoff: datetime, window_days: float, sleep: float) -> list[dict[str, Any]]:
@@ -528,11 +550,12 @@ def build_row(
     cutoff, cutoff_policy = choose_cutoff(
         created_at,
         resolution_at,
-        horizon_grid=args.horizon_grid_list,
+        horizon_grid=args.horizon_grid_list if args.horizon_mode == "grid" else [],
         min_after_start_hours=args.min_after_start_hours,
         min_before_resolution_hours=args.min_before_resolution_hours,
         min_cutoff=parse_ts(args.eligible_after) if args.eligible_after else None,
         seed_key=market_seed,
+        min_horizon_days=float(args.min_horizon_days),
     )
     if cutoff is None:
         return None, cutoff_policy
