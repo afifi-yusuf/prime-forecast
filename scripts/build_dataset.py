@@ -142,6 +142,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-per-template", type=int, default=5,
                    help="Cap rows per normalized question template (numbers/dates "
                         "stripped) to stop recurring mention-market families.")
+    p.add_argument("--max-per-event", type=int, default=4,
+                   help="Cap markets per Polymarket event: sibling markets of one "
+                        "event resolve on the same underlying fact and are highly "
+                        "correlated; capping trades redundancy for event diversity.")
     p.add_argument("--min-total", type=int, default=1600,
                    help="Fraction-cap trim never shrinks the dataset below this; "
                         "caps relax softly instead (scarce categories would "
@@ -676,6 +680,7 @@ class BalancedSelector:
         self.selected: list[dict[str, Any]] = []
         self.counts: Counter[str] = Counter()
         self.template_counts: Counter[str] = Counter()
+        self.event_counts: Counter[str] = Counter()
 
     def _cap_for(self, cat: str) -> int:
         return max(1, int(self.args.target_total * category_frac_cap(cat, self.args)))
@@ -683,6 +688,9 @@ class BalancedSelector:
     def wants(self, row: dict[str, Any]) -> bool:
         tpl = row.get("question_template") or ""
         if tpl and self.template_counts[tpl] >= self.args.max_per_template:
+            return False
+        ev = str(row.get("event_id") or "")
+        if ev and self.event_counts[ev] >= self.args.max_per_event:
             return False
         return self.counts[row["category"]] < self._cap_for(row["category"])
 
@@ -692,6 +700,9 @@ class BalancedSelector:
         tpl = row.get("question_template") or ""
         if tpl:
             self.template_counts[tpl] += 1
+        ev = str(row.get("event_id") or "")
+        if ev:
+            self.event_counts[ev] += 1
 
     @property
     def full(self) -> bool:
