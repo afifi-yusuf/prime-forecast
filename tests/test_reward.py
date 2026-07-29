@@ -52,18 +52,31 @@ async def test_reward_band_always_half():
 
 
 @pytest.mark.asyncio
-async def test_crowd_copy_penalty():
-    # Echoing crowd (0.40) with penalty=0.20 should lose 0.20 vs raw Brier reward.
-    state = _state(0.40, crowd_copy_penalty=0.20, crowd_copy_eps=0.02)
+async def test_crowd_copy_penalty_graded():
+    # Exact crowd echo (dist=0): full penalty.
+    state = _state(0.40, crowd_copy_penalty=0.20, crowd_copy_eps=0.08)
     raw = 1.0 - (0.40 - 1.0) ** 2
     assert await forecast_reward(state, _info(1, price=0.40)) == pytest.approx(raw - 0.20)
-    # Slightly off the crowd: no penalty.
+    # Halfway inside the ramp (dist = eps/2): half penalty.
     assert await forecast_reward(
-        _state(0.45, crowd_copy_penalty=0.20, crowd_copy_eps=0.02),
+        _state(0.44, crowd_copy_penalty=0.20, crowd_copy_eps=0.08),
         _info(1, price=0.40),
-    ) == pytest.approx(1.0 - (0.45 - 1.0) ** 2)
+    ) == pytest.approx((1.0 - (0.44 - 1.0) ** 2) - 0.10)
+    # At/beyond eps: no penalty — sitting just outside is no longer free
+    # only AT the boundary; the ramp is continuous up to it.
+    assert await forecast_reward(
+        _state(0.48, crowd_copy_penalty=0.20, crowd_copy_eps=0.08),
+        _info(1, price=0.40),
+    ) == pytest.approx(1.0 - (0.48 - 1.0) ** 2)
     # Penalty disabled by default when state keys absent.
     assert await forecast_reward(_state(0.40), _info(1, price=0.40)) == pytest.approx(raw)
+    # Monotonicity: closer to crowd -> lower reward (the anti-anchoring gradient),
+    # holding the Brier term's effect smaller than the penalty slope locally.
+    near = await forecast_reward(
+        _state(0.41, crowd_copy_penalty=0.20, crowd_copy_eps=0.08), _info(1, price=0.40))
+    far = await forecast_reward(
+        _state(0.46, crowd_copy_penalty=0.20, crowd_copy_eps=0.08), _info(1, price=0.40))
+    assert far > near
 
 
 @pytest.mark.asyncio

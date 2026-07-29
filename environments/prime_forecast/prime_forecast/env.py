@@ -142,8 +142,16 @@ async def forecast_reward(state: vf.State, info) -> float:
     crowd = meta.get("price_at_cutoff")
     if penalty > 0 and crowd is not None:
         try:
-            if abs(p - float(crowd)) <= eps:
-                r = max(0.0, r - penalty)
+            # Graded anti-anchoring ramp (v2): full penalty at |p-crowd|=0,
+            # linearly decaying to zero at eps. The v1 binary cliff taught the
+            # policy to sit just outside the threshold (median dist 0.028 vs
+            # eps 0.02 on held-out eval); a ramp leaves no place to hide.
+            # Note: GRPO advantages are group-relative per question, so only
+            # within-group-varying terms like this shape the gradient —
+            # question-constant terms (e.g. crowd Brier) cancel out.
+            dist = abs(p - float(crowd))
+            if dist < eps:
+                r = max(0.0, r - penalty * (1.0 - dist / eps))
         except (TypeError, ValueError):
             pass
     await _post_result_webhook({
