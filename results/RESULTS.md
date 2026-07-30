@@ -1,5 +1,32 @@
 # prime-forecast: evaluation results
 
+> **v2 run results added below** (see "v2 main run"). Narrative:
+> `research-arc.md`. Reward evolution: `../docs/reward-design.md`.
+
+## v2 main run (env 0.1.15, run `mjkvxreh4rna7trg1621r9kt`)
+
+Single epoch over dataset v4 (33 steps × 64 × 8; 2,113 train questions),
+graded anti-anchoring ramp (w=0.15, ε=0.08), SearXNG search, max_turns 10,
+≤3 searches. Both evals platform-served on the v4 test split (n=265, crowd
+Brier 0.189); raw per-rollout data: `v2_run_webhook.jsonl.gz`, split pinned
+as `test_split_v4.jsonl`.
+
+| | base (step-0 eval) | trained v2 (step-33 eval) |
+|---|---|---|
+| submit rate | 64% | **100%** |
+| soft-Brier (0.5-imputed) | 0.215 [0.194, 0.235] | **0.211 [0.188, 0.233]** |
+| median \|p − crowd\| | 0.050 | 0.080 (= ramp ε) |
+| within 0.02 of crowd | 16% | **4%** |
+
+Headline findings: cliff-camping eliminated (v1: 0.028 median / 32% inside
+0.02) but the policy re-anchors at the new boundary ε; accuracy statistically
+unchanged while coverage rises 64%→100% and crowd-distance triples —
+internalized skill without headline Brier movement. Training curve: 100%
+submit by step 15; several late batches beat their batch crowd (e.g. step 19:
+0.170 vs 0.194). Platform artifact loss recurred: step-33 checkpoint never
+uploaded, step-33 adapter stuck UPLOADING (final "Latest" adapter READY);
+step-22 checkpoint is the last warm-startable artifact.
+
 All evaluations on the held-out **test split** (160 resolved Polymarket questions,
 resolutions 2026-07-01 → 2026-07-27, strictly after all training data; crowd
 Brier 0.191 on this split ≈ dataset average — i.e. normal difficulty).
