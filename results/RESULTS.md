@@ -18,6 +18,44 @@ as `test_split_v4.jsonl`.
 | median \|p − crowd\| | 0.050 | 0.080 (= ramp ε) |
 | within 0.02 of crowd | 16% | **4%** |
 
+## Frontier panel — all policies in the SAME agentic harness
+
+Identical protocol for every row: v4 test split (n=265), max_turns 10, ≤3
+searches, market tools on, SearXNG search, leak filter active. Frontier models
+served via LiteLLM→Bedrock (Anthropic, AWS credits) and →Vertex (Google, GCP
+credits); our models platform-served on Prime.
+
+| policy | soft-Brier | ECE | submit | trading P&L/bet | median \|p−crowd\| |
+|---|---|---|---|---|---|
+| Claude Sonnet 4.5 | **0.191** [.164,.217] | **0.063** | 100% | +$0.010 | 0.045 |
+| Gemini 3.1 Pro | 0.197 [.169,.224] | **0.062** | 94% | +$0.008 | 0.042 |
+| Gemini 3.6 Flash | 0.196 [.169,.222] | 0.085 | 99% | −$0.015 | 0.040 |
+| **trained 35B (v2)** | 0.211 [.188,.233] | 0.119 | 100% | — | 0.080 |
+| base 35B | 0.215 [.194,.235] | 0.170 | 64% | — | 0.050 |
+| **crowd (market)** | **0.189** | — | — | — | — |
+
+**Finding 7 (accuracy ceiling is the scaffold; capability shows up as
+calibration).** Five policies spanning ~3B–frontier scale land in a 0.191–0.215
+Brier band with fully overlapping CIs, and *none* beats the market. Calibration,
+by contrast, separates monotonically with model capability: Sonnet 0.063 ≈
+Gemini Pro 0.062 < Flash 0.085 < trained-35B 0.119 < base-35B 0.170. RL training
+moves the open 35B a third of the way up that ladder (0.170→0.119) without
+touching the accuracy ceiling. Only the two strongest frontier models turn
+(marginally) positive simulated trading profit.
+
+Raw data: `sonnet45_harness_eval.jsonl`, `gemini36flash_harness_eval.jsonl`,
+`gemini31pro_harness_eval.jsonl`.
+
+**Protocol caveats (frontier rows).** Bedrock/Vertex tool-schema validators
+required a proxy-side compatibility layer: Optional-union flattening,
+`additionalProperties:false`, a compacted belief schema, belief updates only on
+`submit`, and a 7-of-13 core toolset (dropped tools saw <5% usage by any model).
+Our models ran the full 13-tool protocol. **Validity note:** an early "Gemini
+Flash" run was discovered to be Sonnet 4.5 — `prime eval`'s config file silently
+overrides its `-m` flag; results were retracted and re-run with per-model
+configs (`configs/eval/frontier-<model>.toml`). Model identity was verified from
+output-directory naming and proxy call logs.
+
 ### The complete 2×2 (v4 test, n=265, all platform-served)
 
 | soft-Brier (ECE) | tools ON | tools OFF |

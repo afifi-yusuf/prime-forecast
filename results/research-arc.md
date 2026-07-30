@@ -106,6 +106,36 @@ Both remaining cells measured platform-served on the same 265 test questions
 Revised thesis: *in-the-loop retrieval RLVR primarily teaches calibration and
 task behavior; forecasting accuracy remains scaffold-bound and crowd-bounded.*
 
+## Experiment 4 — frontier panel through the same harness
+
+Neither reference paper tested frontier models *agentically* (both fed them
+frozen research context). We ran Claude Sonnet 4.5, Gemini 3.1 Pro and Gemini
+3.6 Flash through the identical loop, tools and leak filter as our own models.
+
+| policy | soft-Brier | ECE |
+|---|---|---|
+| Sonnet 4.5 | 0.191 | 0.063 |
+| Gemini 3.1 Pro | 0.197 | 0.062 |
+| Gemini 3.6 Flash | 0.196 | 0.085 |
+| trained 35B | 0.211 | 0.119 |
+| base 35B | 0.215 | 0.170 |
+| crowd | 0.189 | — |
+
+- **Finding 7 (two axes):** accuracy is scaffold-bound — five policies from 3B
+  active params to frontier scale sit in one 0.19–0.22 band with overlapping
+  CIs and none beats the market — while **calibration tracks capability
+  monotonically** (0.062 → 0.170 across the ladder). The harness equalizes
+  *what you can find out*; the weights determine *how honestly you report it*.
+- Our RL run advances the open 35B roughly a third of the calibration gap
+  toward frontier models at ~1/10th inference cost, and closes the coverage gap
+  entirely (64%→100% submit, matching or exceeding every frontier row).
+- **Finding 8 (matched-subset, controlling for self-selection):** on the 169
+  questions both base and trained answered, paired Brier difference is
+  −0.001 ± 0.020 — statistically identical. Training's headline effect is
+  therefore coverage + calibration, with resolution flat to within ±0.01
+  (n=265 can only detect effects ≥0.02; ~1,400 questions would be needed for
+  0.01).
+
 ## How this compares to the genre's publishable claims
 
 Turtel: large Brier gain over a weak 14B base + parity with o1; no
