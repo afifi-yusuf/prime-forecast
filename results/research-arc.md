@@ -80,6 +80,32 @@ through identical harness):**
 - Neither model beats the crowd (0.189) — consistent with both reference
   papers, whose trained models also do not beat market prices.
 
+## Experiment 3 — the harness × training quadrant (standalone skill)
+
+Both remaining cells measured platform-served on the same 265 test questions
+(base tools-off and trained tools-off probes):
+
+| soft-Brier (ECE) | tools ON | tools OFF |
+|---|---|---|
+| trained v2 | 0.211 (0.119) | 0.250 (0.127) |
+| base | 0.215 (0.170) | 0.254 (0.185) |
+
+- **Finding 5 (accuracy is scaffold-bound):** the agentic harness is worth
+  ~0.04 Brier to either model; the weight updates are worth ~0.004 (not
+  significant). The hypothesized Turtel-shaped standalone-Brier gain did not
+  materialize: even with retrieval folded into the RL loop, accuracy gains
+  come from the scaffold, not the weights — extending Mantic's
+  scaffold-dominates-weights decomposition to the trained-retrieval setting.
+- **Finding 6 (training buys calibration):** ECE falls ~30% in both columns
+  (0.170→0.119 tools-on; 0.185→0.127 tools-off). The calibration gain
+  survives complete removal of the crowd anchor — internalized, not borrowed.
+  Together with the behavioral transformations (coverage 64→100%, 3×
+  crowd-independence, turn efficiency), this is what outcome-based RLVR
+  actually teaches at this scale.
+
+Revised thesis: *in-the-loop retrieval RLVR primarily teaches calibration and
+task behavior; forecasting accuracy remains scaffold-bound and crowd-bounded.*
+
 ## How this compares to the genre's publishable claims
 
 Turtel: large Brier gain over a weak 14B base + parity with o1; no

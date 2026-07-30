@@ -18,6 +18,22 @@ as `test_split_v4.jsonl`.
 | median \|p − crowd\| | 0.050 | 0.080 (= ramp ε) |
 | within 0.02 of crowd | 16% | **4%** |
 
+### The complete 2×2 (v4 test, n=265, all platform-served)
+
+| soft-Brier (ECE) | tools ON | tools OFF |
+|---|---|---|
+| trained v2 | **0.211** [.188,.233] (ECE **0.119**) | **0.250** [.224,.277] (ECE **0.127**) |
+| base | 0.215 [.194,.235] (ECE 0.170) | 0.254 [.228,.280] (ECE 0.185) |
+| crowd | 0.189 | — |
+
+Submit rates: trained 100%/97%, base 64%/84%. Raw data:
+`v2_toolsoff_eval.jsonl`, `base_toolsoff_eval.jsonl` (filter against
+`test_split_v4.jsonl`). Quadrant findings: (i) tools worth ~0.04 Brier to
+both models; training worth ~0.004 (n.s.) — accuracy is scaffold-bound,
+extending Mantic's scaffold-dominates-weights result to trained retrieval;
+(ii) training's consistent effect is calibration: ECE −30% in both columns,
+surviving crowd removal; (iii) behavior: coverage, independence, efficiency.
+
 Headline findings: cliff-camping eliminated (v1: 0.028 median / 32% inside
 0.02) but the policy re-anchors at the new boundary ε; accuracy statistically
 unchanged while coverage rises 64%→100% and crowd-distance triples —
