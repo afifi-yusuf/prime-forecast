@@ -106,6 +106,24 @@ Both remaining cells measured platform-served on the same 265 test questions
 Revised thesis: *in-the-loop retrieval RLVR primarily teaches calibration and
 task behavior; forecasting accuracy remains scaffold-bound and crowd-bounded.*
 
+### The training curve, difficulty-adjusted
+
+The raw v2 reward curve looks like noise (0.60–0.88, no visible trend) —
+because under single-epoch training every batch is 64 never-seen questions and
+per-batch reward is dominated by question difficulty: crowd-attainable reward
+(1 − batch crowd Brier, logged by the env each step) itself swings 0.66–0.94,
+and raw policy reward correlates with it at r = +0.58. A smoothly rising raw
+curve in this regime would indicate re-fitting repeated data, not learning.
+
+Subtracting crowd-attainable reward per step recovers the signal
+(`figures/v2_reward_difficulty_adjusted.png`, data
+`v2_run_platform_metrics.json`): the gap to the crowd narrows from ~0.145
+(first 5 steps) to ~0.059 (last 5), trend +0.0037/step, t = 4.5. Roughly half
+the closure is the submit-rate rise (0.59→1.00 by step 15, ending 0.55-floor
+penalties); after saturation the gap continues narrowing (~0.076→0.052, trend
++0.0021/step, t = 1.5 — suggestive, not significant, consistent with the flat
+held-out Brier result).
+
 ## Experiment 4 — frontier panel through the same harness
 
 Neither reference paper tested frontier models *agentically* (both fed them
