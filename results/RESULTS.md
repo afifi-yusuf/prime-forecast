@@ -67,6 +67,7 @@ columns. The ablated variable is access to the crowd price, not research.
 |---|---|---|
 | trained v2 | **0.211** [.188,.233] (ECE **0.119**) | **0.250** [.224,.277] (ECE **0.127**) |
 | base | 0.215 [.194,.235] (ECE 0.170) | 0.254 [.228,.280] (ECE 0.185) |
+| Sonnet 4.5 | 0.191 [.164,.217] (ECE 0.063) | 0.246 [.216,.276] (ECE 0.130) |
 | crowd | 0.189 | — |
 
 Submit rates: trained 100%/97%, base 64%/84%. Raw data:
@@ -76,6 +77,18 @@ both models (research tools held constant); training worth ~0.004 (n.s.) — acc
 extending Mantic's scaffold-dominates-weights result to trained retrieval;
 (ii) training's consistent effect is calibration: ECE −30% in both columns,
 surviving crowd removal; (iii) behavior: coverage, independence, efficiency.
+
+**Finding 9 (the market anchor explains "beats frontier" claims — and yields
+an honest parity result).** Sonnet 4.5 without market tools scores 0.246
+(ECE 0.130): the anchor is worth 0.055 to a frontier model, and our trained
+35B WITH the anchor (0.211) "beats" Sonnet without it — reproducing the
+Turtel/Mantic claim shape (their frontier baselines had frozen context and
+no market price) by scaffold asymmetry alone. In the matched no-market
+condition, trained-35B and Sonnet are statistically indistinguishable on
+both axes (Brier 0.250 vs 0.246; ECE 0.127 vs 0.130, overlapping CIs) while
+base is not (ECE 0.185): outcome-based RL closed the full calibration gap to
+a frontier model at forecasting-from-evidence — measured with the step-22
+checkpoint, so likely conservative. Raw: `sonnet45_notools_eval.jsonl`.
 
 Headline findings: cliff-camping eliminated (v1: 0.028 median / 32% inside
 0.02) but the policy re-anchors at the new boundary ε; accuracy statistically

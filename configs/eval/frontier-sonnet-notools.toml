@@ -1,0 +1,25 @@
+# Frontier panel: closed-source models through the SAME agentic harness and
+# protocol as the v2 quadrant (v4 test split, n=265, max_turns 10, <=3
+# searches, market tools on, SearXNG search). Served via local LiteLLM proxy
+# -> Bedrock (IAM; bills AWS credits).
+# Usage:
+#   .venv/bin/litellm --config <litellm.yaml> --port 4000 &
+#   export PF_SEARCH_BACKEND=searxng SEARXNG_URL=http://20.110.86.90:8080 OPENAI_API_KEY=dummy
+#   prime eval run configs/eval/frontier-panel.toml -m sonnet-4.5 \
+#     --provider openai --api-base-url http://localhost:4000/v1 --api-key-var OPENAI_API_KEY \
+#     --plain --disable-tui
+
+env_dir_path = "environments"
+provider = "openai"
+api_base_url = "http://localhost:4000/v1"
+api_key_var = "OPENAI_API_KEY"
+model = "sonnet-4.5"
+num_examples = 265
+rollouts_per_example = 1
+max_concurrent = 6
+max_tokens = 8192
+save_results = true
+
+[[eval]]
+id = "prime-forecast"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = false }

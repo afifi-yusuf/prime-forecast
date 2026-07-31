@@ -155,6 +155,25 @@ frozen research context). We ran Claude Sonnet 4.5, Gemini 3.1 Pro and Gemini
   (n=265 can only detect effects ≥0.02; ~1,400 questions would be needed for
   0.01).
 
+## Experiment 5 — the market anchor decomposition (Sonnet tools-off)
+
+One more cell: Sonnet 4.5 in the identical no-market condition as our
+quadrant. Result: 0.246 [.216,.276], ECE 0.130 (vs 0.191/0.063 with market
+tools).
+
+- **Finding 9a:** frontier in-harness accuracy is substantially crowd-reading:
+  the anchor is worth 0.055 Brier and 2x ECE to Sonnet.
+- **Finding 9b:** "small trained model beats frontier" (Turtel's headline,
+  Mantic's Fig. 1) reproduces on demand from scaffold asymmetry: our trained
+  35B with market tools (0.211) beats Sonnet without (0.246). Both reference
+  papers' frontier baselines were denied the scaffold their trained models
+  used at full strength.
+- **Finding 9c (parity claim):** in the matched no-market condition the
+  trained 35B is statistically indistinguishable from Sonnet 4.5 on accuracy
+  (0.250 vs 0.246) AND calibration (0.127 vs 0.130); the untrained base is
+  not (ECE 0.185). RLVR closed the calibration gap to frontier at
+  forecasting-from-evidence (step-22 checkpoint; likely conservative).
+
 ## How this compares to the genre's publishable claims
 
 Turtel: large Brier gain over a weak 14B base + parity with o1; no
