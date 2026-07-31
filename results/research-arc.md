@@ -132,6 +132,7 @@ frozen research context). We ran Claude Sonnet 4.5, Gemini 3.1 Pro and Gemini
 
 | policy | soft-Brier | ECE |
 |---|---|---|
+| Opus 4.5 | 0.186 | 0.053 |
 | Sonnet 4.5 | 0.191 | 0.063 |
 | Gemini 3.1 Pro | 0.197 | 0.062 |
 | Gemini 3.6 Flash | 0.196 | 0.085 |

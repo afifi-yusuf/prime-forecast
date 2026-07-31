@@ -27,7 +27,8 @@ credits); our models platform-served on Prime.
 
 | policy | soft-Brier | ECE | submit | trading P&L/bet | median \|p−crowd\| |
 |---|---|---|---|---|---|
-| Claude Sonnet 4.5 | **0.191** [.164,.217] | **0.063** | 100% | +$0.010 | 0.045 |
+| Claude Opus 4.5 | **0.186** [.161,.211] | **0.053** | 98% | **+$0.042** | 0.035 |
+| Claude Sonnet 4.5 | 0.191 [.164,.217] | 0.063 | 100% | +$0.010 | 0.045 |
 | Gemini 3.1 Pro | 0.197 [.169,.224] | **0.062** | 94% | +$0.008 | 0.042 |
 | Gemini 3.6 Flash | 0.196 [.169,.222] | 0.085 | 99% | −$0.015 | 0.040 |
 | **trained 35B (v2)** | 0.211 [.188,.233] | 0.119 | 100% | — | 0.080 |
@@ -43,7 +44,7 @@ moves the open 35B a third of the way up that ladder (0.170→0.119) without
 touching the accuracy ceiling. Only the two strongest frontier models turn
 (marginally) positive simulated trading profit.
 
-Raw data: `sonnet45_harness_eval.jsonl`, `gemini36flash_harness_eval.jsonl`,
+Raw data: `opus45_harness_eval.jsonl`, `sonnet45_harness_eval.jsonl`, `gemini36flash_harness_eval.jsonl`,
 `gemini31pro_harness_eval.jsonl`.
 
 **Protocol caveats (frontier rows).** Bedrock/Vertex tool-schema validators
