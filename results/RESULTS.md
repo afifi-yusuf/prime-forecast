@@ -83,12 +83,16 @@ an honest parity result).** Sonnet 4.5 without market tools scores 0.246
 (ECE 0.130): the anchor is worth 0.055 to a frontier model, and our trained
 35B WITH the anchor (0.211) "beats" Sonnet without it — reproducing the
 Turtel/Mantic claim shape (their frontier baselines had frozen context and
-no market price) by scaffold asymmetry alone. In the matched no-market
-condition, trained-35B and Sonnet are statistically indistinguishable on
-both axes (Brier 0.250 vs 0.246; ECE 0.127 vs 0.130, overlapping CIs) while
-base is not (ECE 0.185): outcome-based RL closed the full calibration gap to
-a frontier model at forecasting-from-evidence — measured with the step-22
-checkpoint, so likely conservative. Raw: `sonnet45_notools_eval.jsonl`.
+no market price) by scaffold asymmetry alone. In the matched no-market condition
+ALL pairwise accuracy differences are n.s. at n=265 (bootstrap CIs span 0;
+even base~Sonnet) — no accuracy claim is available in this cell for anyone.
+Calibration point estimates put trained (0.127) at Sonnet parity (0.130)
+with base worse, but per-cell ECE CIs (±0.07) make no single pairwise diff
+significant; the calibration claim rests on the cross-eval pattern (trained
+ECE < base ECE in all four independent evals), not this cell alone. NOTE:
+ECE is imputation-sensitive (base submits 84% here; 0.5-imputed 0.143 vs
+submitted-only 0.185) — paper must pin one convention. Raw:
+`sonnet45_notools_eval.jsonl`.
 
 Headline findings: cliff-camping eliminated (v1: 0.028 median / 32% inside
 0.02) but the policy re-anchors at the new boundary ε; accuracy statistically

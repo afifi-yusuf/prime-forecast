@@ -168,11 +168,16 @@ tools).
   35B with market tools (0.211) beats Sonnet without (0.246). Both reference
   papers' frontier baselines were denied the scaffold their trained models
   used at full strength.
-- **Finding 9c (parity claim):** in the matched no-market condition the
-  trained 35B is statistically indistinguishable from Sonnet 4.5 on accuracy
-  (0.250 vs 0.246) AND calibration (0.127 vs 0.130); the untrained base is
-  not (ECE 0.185). RLVR closed the calibration gap to frontier at
-  forecasting-from-evidence (step-22 checkpoint; likely conservative).
+- **Finding 9c (bounded parity):** in the matched no-market condition no
+  pairwise accuracy difference among base/trained/Sonnet is significant at
+  n=265 — so "matches frontier accuracy" is true but vacuous (base matches
+  too); the honest statement is that evidence-based forecasting accuracy
+  does not separate any policy at this n. Calibration point estimates show
+  trained (0.127) at Sonnet parity (0.130), base worse — but per-cell ECE
+  CIs are ±0.07, so the calibration claim rests on the consistent
+  cross-eval direction (trained < base in all four evals), not one cell.
+  ECE is imputation-sensitive when submit<100% (base: 0.143 imputed vs
+  0.185 submitted-only) — convention must be pinned paper-wide.
 
 ## How this compares to the genre's publishable claims
 
