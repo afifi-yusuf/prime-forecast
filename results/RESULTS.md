@@ -68,7 +68,26 @@ columns. The ablated variable is access to the crowd price, not research.
 | trained v2 | **0.211** [.188,.233] (ECE **0.119**) | **0.250** [.224,.277] (ECE **0.127**) |
 | base | 0.215 [.194,.235] (ECE 0.170) | 0.254 [.228,.280] (ECE 0.185) |
 | Sonnet 4.5 | 0.191 [.164,.217] (ECE 0.063) | 0.246 [.216,.276] (ECE 0.130) |
+| Gemini 3.6 Flash | 0.196 [.169,.222] (ECE 0.085) | 0.259 [.226,.293] (ECE 0.157) |
+| Gemini 3.1 Pro | 0.197 [.169,.224] (ECE 0.062) | 0.272 [.234,.309] (ECE 0.220, submit 89%) |
 | crowd | 0.189 | — |
+
+**Anchor-worth (paired within-model, same questions, p<0.001 all rows):**
+
+| policy | anchor-worth [95% CI] |
+|---|---|
+| Gemini 3.1 Pro | +0.075 [+0.040, +0.110] |
+| Gemini 3.6 Flash | +0.063 [+0.033, +0.094] |
+| Sonnet 4.5 | +0.058 [+0.031, +0.085] |
+| trained 35B | +0.039 [+0.016, +0.063] |
+| base 35B | +0.039 [+0.016, +0.063] |
+
+Frontier models lean MORE on the crowd than the 35Bs — the frontier's
+in-harness advantage is substantially better anchor exploitation. Without
+the market, Gemini Pro's ECE (0.220) is worse than the untrained 35B's, and
+frontier accuracy (0.246-0.272) collapses into/below the 35B band
+(0.250-0.254). Raw: `gemini36flash_notools_eval.jsonl`,
+`gemini31pro_notools_eval.jsonl`.
 
 Submit rates: trained 100%/97%, base 64%/84%. Raw data:
 `v2_toolsoff_eval.jsonl`, `base_toolsoff_eval.jsonl` (filter against

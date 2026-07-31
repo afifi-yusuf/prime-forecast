@@ -161,8 +161,14 @@ One more cell: Sonnet 4.5 in the identical no-market condition as our
 quadrant. Result: 0.246 [.216,.276], ECE 0.130 (vs 0.191/0.063 with market
 tools).
 
-- **Finding 9a:** frontier in-harness accuracy is substantially crowd-reading:
-  the anchor is worth 0.055 Brier and 2x ECE to Sonnet.
+- **Finding 9a (generalized, 3 frontier models, 2 vendors):** frontier
+  in-harness accuracy is substantially crowd-reading. Paired anchor-worth
+  (tools-on vs tools-off, same questions, all p<0.001): Gemini Pro +0.075,
+  Flash +0.063, Sonnet +0.058, vs +0.039 for both 35Bs — frontier models
+  lean MORE on the crowd than small models, and their advantage largely IS
+  better anchor exploitation. Without the market, frontier accuracy falls
+  into/below the 35B band and Gemini Pro's calibration (ECE 0.220) drops
+  below the untrained 35B's.
 - **Finding 9b:** "small trained model beats frontier" (Turtel's headline,
   Mantic's Fig. 1) reproduces on demand from scaffold asymmetry: our trained
   35B with market tools (0.211) beats Sonnet without (0.246). Both reference
