@@ -82,13 +82,9 @@ submit by step 15; several late batches beat their batch crowd (e.g. step 19:
 uploaded, step-33 adapter stuck UPLOADING (final "Latest" adapter READY);
 step-22 checkpoint is the last warm-startable artifact.
 
-All evaluations on the held-out **test split** (160 resolved Polymarket questions,
-resolutions 2026-07-01 → 2026-07-27, strictly after all training data; crowd
-Brier 0.191 on this split ≈ dataset average — i.e. normal difficulty).
-
-Trained model: Qwen3.5-35B-A3B + LoRA (r=16, α=32), 45-step GRPO run
-`rqn28a9dizg2ete43qgzqyry` on env `yafifi/prime-forecast` (Brier reward,
-0.55 no-submit floor, crowd-copy penalty 0.20@0.02, max 8 turns, ≤2 searches).
+Model: Qwen3.5-35B-A3B + LoRA (r=16, α=32). v4 test split: 265 resolved
+Polymarket questions, resolutions 2026-07-01 onward, strictly after all
+training data.
 
 ## Archive: v1 run (superseded by v2; kept for findings it grounds)
 
