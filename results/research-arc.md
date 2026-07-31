@@ -80,18 +80,18 @@ through identical harness):**
 - Neither model beats the crowd (0.189) — consistent with both reference
   papers, whose trained models also do not beat market prices.
 
-## Experiment 3 — the harness × training quadrant (standalone skill)
+## Experiment 3 — the market-anchor × training quadrant (standalone skill)
 
 Both remaining cells measured platform-served on the same 265 test questions
 (base tools-off and trained tools-off probes):
 
-| soft-Brier (ECE) | tools ON | tools OFF |
+| soft-Brier (ECE) | market tools ON | market tools OFF |
 |---|---|---|
 | trained v2 | 0.211 (0.119) | 0.250 (0.127) |
 | base | 0.215 (0.170) | 0.254 (0.185) |
 
-- **Finding 5 (accuracy is scaffold-bound):** the agentic harness is worth
-  ~0.04 Brier to either model; the weight updates are worth ~0.004 (not
+- **Finding 5 (accuracy is scaffold-bound):** the market anchor is worth
+  ~0.04 Brier to either model (research tools present in both conditions); the weight updates are worth ~0.004 (not
   significant). The hypothesized Turtel-shaped standalone-Brier gain did not
   materialize: even with retrieval folded into the RL loop, accuracy gains
   come from the scaffold, not the weights — extending Mantic's
