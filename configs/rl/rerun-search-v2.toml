@@ -1,0 +1,42 @@
+# Search-fixed re-eval of the UNTRAINED base (env 0.1.16). Both market
+# conditions; probe of v2 step-22.
+model = "Qwen/Qwen3.5-35B-A3B"
+checkpoint_id = "vjv9wojk2q1z8w3ofodlctew"
+max_steps = 23
+batch_size = 16
+rollouts_per_example = 8
+env_file = ["../../secrets.env", "../../eval-searxng.env"]
+
+[sampling]
+max_tokens = 12288
+enable_thinking = true
+
+[[env]]
+id = "yafifi/prime-forecast"
+args = { split = "train", max_turns = 10, max_web_searches = 3, include_market_tools = true, crowd_copy_penalty = 0.15, crowd_copy_eps = 0.08 }
+
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[eval]
+interval = 23
+skip_first_step = false
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = true }
+num_examples = 265
+rollouts_per_example = 1
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = false }
+num_examples = 265
+rollouts_per_example = 1
+
+[checkpoints]
+interval = 100
+
+[adapters]
+interval = 100
