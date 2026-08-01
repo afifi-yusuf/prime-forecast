@@ -49,8 +49,20 @@ _BACKENDS = frozenset({"firecrawl", "brave", "tavily", "exa", "agentcore", "sear
 
 
 def search_backend() -> str:
-    """Resolve active search backend from env."""
+    """Resolve active search backend from env.
+
+    PF_SEARCH_BACKEND may be a comma-separated fallback chain
+    (e.g. "searxng,brave,tavily"): each backend is tried in order and the
+    first non-empty result set wins. Empty results count as failure —
+    scraping backends can silently return [] when upstream engines
+    rate-limit or CAPTCHA the caller's IP (observed: 93-100% empty across
+    an entire eval campaign while HTTP status stayed 200).
+    """
     raw = os.environ.get("PF_SEARCH_BACKEND", "").strip().lower()
+    if "," in raw:
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+        if parts and all(p in _BACKENDS for p in parts):
+            return raw
     if raw in _BACKENDS:
         return raw
     if os.environ.get("AGENTCORE_GATEWAY_URL") or os.environ.get("AGENTCORE_GATEWAY_ID"):
@@ -642,29 +654,44 @@ async def web_search(
             "No search backend configured. Set PF_SEARCH_BACKEND=firecrawl|brave|tavily|exa|agentcore "
             "and the matching credentials."
         )
-    impl = {
+    if _cache_enabled():
+        key = _cache_key(backend, query, cutoff_date)
+        hit = _cache_get(key)
+        if hit is not None:
+            raw, parsed = hit
+            if parsed:  # never serve a cached empty result set
+                return raw, parsed, {"mode": "cache", "cache": "hit"}
+
+    chain = [b.strip() for b in backend.split(",") if b.strip() and b.strip() != "none"] or [backend]
+    impls = {
         "firecrawl": search_firecrawl,
         "brave": search_brave,
         "tavily": search_tavily,
         "agentcore": search_agentcore,
         "exa": search_exa,
         "searxng": search_searxng,
-    }.get(backend)
-    if impl is None:
-        raise ValueError(f"Unknown PF_SEARCH_BACKEND={backend!r}")
+    }
+    raw, parsed, debug = "", [], {}
+    attempts = []
+    for b in chain:
+        try:
+            raw, parsed, debug = await impls[b](
+                query, cutoff_date=cutoff_date, num_results=num_results, question=question,
+            )
+        except Exception as e:
+            attempts.append(f"{b}:error:{type(e).__name__}")
+            if b == chain[-1] and not parsed:
+                raise
+            continue
+        if parsed:
+            attempts.append(f"{b}:ok")
+            debug = {**debug, "backend_used": b}
+            break
+        attempts.append(f"{b}:empty")
+    debug = {**debug, "attempts": attempts}
 
-    if _cache_enabled():
-        key = _cache_key(backend, query, cutoff_date)
-        hit = _cache_get(key)
-        if hit is not None:
-            raw, parsed = hit
-            return raw, parsed, {"mode": "cache", "cache": "hit"}
-
-    raw, parsed, debug = await impl(
-        query, cutoff_date=cutoff_date, num_results=num_results, question=question,
-    )
-    if _cache_enabled():
-        _cache_put(key, raw, parsed, query=query, cutoff_date=cutoff_date)
+    if _cache_enabled() and parsed:  # never cache empties: transient upstream
+        _cache_put(key, raw, parsed, query=query, cutoff_date=cutoff_date)  # bans would poison the corpus
         debug = {**debug, "cache": "miss"}
     return raw, parsed, debug
 
