@@ -1,6 +1,11 @@
 # prime-forecast: evaluation results
 
-> **v2 run results added below** (see "v2 main run"). Narrative:
+> **v3 no-market run added** (run `slgbosbzsn4dzt2706bux0qx`): trained and
+> evaluated without market tools. Base 0.261 → trained 0.245 (paired +0.016,
+> t=1.25 n.s.), ECE 0.160→0.110, submit 74→98%; median prediction parked at
+> the dataset base rate (0.35 vs 0.355) with extremes collapsing 10%→2% —
+> pre-registered base-rate-herding prediction confirmed (Finding 10, anchor
+> ladder). Raw: `v3_run_webhook.jsonl.gz`. Narrative:
 > `research-arc.md`. Reward evolution: `../docs/reward-design.md`.
 
 ## v2 main run (env 0.1.15, run `mjkvxreh4rna7trg1621r9kt`)
@@ -68,6 +73,7 @@ columns. The ablated variable is access to the crowd price, not research.
 | trained v2 | **0.211** [.188,.233] (ECE **0.119**) | **0.250** [.224,.277] (ECE **0.127**) |
 | base | 0.215 [.194,.235] (ECE 0.170) | 0.254 [.228,.280] (ECE 0.185) |
 | Sonnet 4.5 | 0.191 [.164,.217] (ECE 0.063) | 0.246 [.216,.276] (ECE 0.130) |
+| **trained v3 (no-mkt trained)** | — | **0.245 [.221,.268] (ECE 0.110)** |
 | Gemini 3.6 Flash | 0.196 [.169,.222] (ECE 0.085) | 0.259 [.226,.293] (ECE 0.157) |
 | Gemini 3.1 Pro | 0.197 [.169,.224] (ECE 0.062) | 0.272 [.234,.309] (ECE 0.220, submit 89%) |
 | crowd | 0.189 | — |

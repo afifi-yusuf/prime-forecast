@@ -208,7 +208,40 @@ crowd-copy penalty — nothing visible to copy). Launched 2026-07-31.
 5. Web searches per rollout increase (search is now the only information
    channel).
 
-Results: PENDING (fill in at step-33 eval).
+**Results (platform-served, n=265, matched no-market condition,
+`v3_run_webhook.jsonl.gz` / `v3_run_platform_metrics.json`):**
+
+| | base (step 0) | trained v3 (step 33) |
+|---|---|---|
+| soft-Brier | 0.261 [0.235, 0.287] | **0.245 [0.221, 0.268]** |
+| ECE (0.5-imputed) | 0.160 | **0.110** |
+| submit | 74% | 98% |
+| pred p10/p50/p90 | 0.10 / 0.35 / 0.63 | 0.15 / **0.35** / 0.55 |
+| extreme preds (<0.1 or >0.9) | 10% | **2%** |
+
+Paired (base − trained): **+0.016 ± 0.025 (t=1.25, n.s.)** — 4× the v2
+market-on paired effect (−0.001) but below significance at n=265.
+
+**Predictions scored:** (1) submit saturation ✓ (74→98%); (2) calibration
+gain ✓ (0.160→0.110, similar to v2); (3) resolution "directionally positive,
+~0.240–0.245, not significant" ✓ — landed 0.245 exactly; (4) **base-rate
+herding ✓ — the headline**: trained median prediction 0.35 = test-split YES
+base rate 0.355 exactly; extremes collapse 10%→2%; spread narrows to
+[0.15, 0.55]. (5) searches up ✗ — flat (4.07→3.87/rollout).
+
+- **Finding 10 (the anchor ladder):** remove the crowd anchor and the
+  policy migrates to the next-nearest attractor — the dataset base rate.
+  Anchoring is a property of outcome-based RL, not of the market tool.
+  Combined with v1/v2 (crowd-camping, boundary relocation): GRPO teaches
+  calibration by *seeking anchors*; resolution gains appear only to the
+  extent anchors are exhausted (v3's +0.016 vs v2's −0.001 — removing one
+  anchor unlocked a real-but-small resolution gain, consistent with the
+  shortcut-suppression hypothesis at reduced strength).
+- **Cross-model placement:** trained v3 (0.245) is the best-in-column point
+  estimate alongside Sonnet 4.5 (0.246), ahead of v2 (0.250), base (0.254),
+  Flash (0.259), Pro (0.272) — an open 35B trained for ~$40 matching the
+  best frontier point estimate in the genre-comparable (no-market) agentic
+  condition.
 
 ## How this compares to the genre's publishable claims
 
