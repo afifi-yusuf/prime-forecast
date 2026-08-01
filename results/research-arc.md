@@ -185,6 +185,31 @@ tools).
   ECE is imputation-sensitive when submit<100% (base: 0.143 imputed vs
   0.185 submitted-only) — convention must be pinned paper-wide.
 
+## Experiment 6 — v3: no-market training (run slgbosbzsn4dzt2706bux0qx)
+
+Causal test of the anchor-suppression hypothesis: identical to v2 except
+include_market_tools=false in training AND eval, pure Brier reward (no
+crowd-copy penalty — nothing visible to copy). Launched 2026-07-31.
+
+**Pre-registered predictions (written before any v3 training metrics):**
+
+1. Submit rate saturates ~100% by ~step 15 (near-certain; both prior runs).
+2. Calibration improves, likely MORE than v2 (~85% confidence): no anchor
+   to borrow, so all moderation pressure lands on the weights.
+3. Resolution: directionally positive but small — final soft-Brier
+   ~0.240–0.245 from base 0.254 (~0.005–0.010 gain; Turtel bought 0.016
+   with 5x our data), not individually significant at n=265, but ahead of
+   Flash (0.259) / Pro (0.272) point estimates in the matched column.
+4. **Base-rate herding wildcard:** with the crowd gone, the dataset YES
+   base rate is the next-nearest attractor; watch for predicted_prob
+   distribution collapsing toward it (good ECE, no resolution). If
+   observed: anchoring is a property of outcome-based RL, not of the
+   market tool ("remove one anchor and the policy finds the next").
+5. Web searches per rollout increase (search is now the only information
+   channel).
+
+Results: PENDING (fill in at step-33 eval).
+
 ## How this compares to the genre's publishable claims
 
 Turtel: large Brier gain over a weak 14B base + parity with o1; no
