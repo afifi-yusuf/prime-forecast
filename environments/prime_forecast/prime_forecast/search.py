@@ -45,7 +45,7 @@ _BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
 _FIRECRAWL_URL = "https://api.firecrawl.dev/v2/search"
 _MAX_TEXT_CHARS = 2000
 _AGENTCORE_TOOL_NAMES = ("WebSearch", "WebSearchTool", "web_search", "web-search")
-_BACKENDS = frozenset({"firecrawl", "brave", "tavily", "exa", "agentcore", "searxng", "none"})
+_BACKENDS = frozenset({"firecrawl", "brave", "tavily", "exa", "agentcore", "searxng", "google_cse", "none"})
 
 
 def search_backend() -> str:
@@ -239,6 +239,59 @@ async def search_brave(
                 or ""
             ),
             "text": text[:_MAX_TEXT_CHARS],
+        })
+    raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
+    return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
+
+
+# -------------------------------------------------- Google Custom Search API
+
+_GOOGLE_CSE_URL = "https://customsearch.googleapis.com/customsearch/v1"
+
+
+async def search_google_cse(
+    query: str,
+    *,
+    cutoff_date: str,
+    num_results: int = 10,
+    question: str = "",
+) -> tuple[str, list[dict], dict]:
+    """Google Programmable Search JSON API (licensed; billed to GCP, no IP
+    bans). Supports a native hard date ceiling via sort=date:r:...:YYYYMMDD —
+    the leak filter still applies on top."""
+    api_key = os.environ.get("GOOGLE_CSE_API_KEY", "").strip()
+    cx = os.environ.get("GOOGLE_CSE_CX", "").strip()
+    if not api_key or not cx:
+        raise ValueError("GOOGLE_CSE_API_KEY / GOOGLE_CSE_CX not set")
+
+    q = _sanitize_query(query, max_chars=400)
+    if not q:
+        raise ValueError("query empty after sanitization")
+    k = max(1, min(int(num_results), 10))  # API max is 10 per request
+
+    params = {"key": api_key, "cx": cx, "q": q, "num": k}
+    ymd = (cutoff_date or "").replace("-", "")[:8]
+    if len(ymd) == 8 and ymd.isdigit():
+        params["sort"] = f"date:r:19900101:{ymd}"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(_GOOGLE_CSE_URL, params=params)
+        r.raise_for_status()
+        data = r.json()
+
+    items = []
+    for item in data.get("items") or []:
+        meta = ((item.get("pagemap") or {}).get("metatags") or [{}])[0]
+        items.append({
+            "title": item.get("title", "") or "",
+            "url": item.get("link", "") or "",
+            "publishedDate": (
+                meta.get("article:published_time")
+                or meta.get("og:updated_time")
+                or meta.get("date")
+                or ""
+            ),
+            "text": (item.get("snippet") or "")[:_MAX_TEXT_CHARS],
         })
     raw, parsed = _build_from_items(items, cutoff_date=cutoff_date)
     return await _apply_leak_filter(raw, parsed, cutoff_date=cutoff_date, question=question)
@@ -476,10 +529,36 @@ def _parse_agentcore_payload(content_blocks: Any) -> list[dict]:
     return items
 
 
+_AGENTCORE_TOKEN: dict = {}
+
+
+async def _agentcore_bearer_token() -> str:
+    """OAuth client-credentials token for Gateways with Cognito inbound auth.
+    Cached until ~60s before expiry."""
+    import time
+    if _AGENTCORE_TOKEN.get("exp", 0) - 60 > time.time():
+        return _AGENTCORE_TOKEN["token"]
+    cid = os.environ["AGENTCORE_CLIENT_ID"].strip()
+    sec = os.environ["AGENTCORE_CLIENT_SECRET"].strip()
+    url = os.environ["AGENTCORE_TOKEN_URL"].strip()
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(url, data={
+            "grant_type": "client_credentials",
+            "client_id": cid, "client_secret": sec,
+        }, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        r.raise_for_status()
+        d = r.json()
+    import time as _t
+    _AGENTCORE_TOKEN.update(token=d["access_token"], exp=_t.time() + int(d.get("expires_in", 3600)))
+    return _AGENTCORE_TOKEN["token"]
+
+
 async def _agentcore_call_tool(query: str, max_results: int) -> list[dict]:
-    """Invoke WebSearch on the AgentCore Gateway via SigV4 MCP."""
+    """Invoke WebSearch on the AgentCore Gateway via MCP.
+
+    Auth: OAuth bearer when AGENTCORE_CLIENT_ID/SECRET/TOKEN_URL are set
+    (Cognito quick-start gateways), else SigV4 IAM."""
     from mcp import ClientSession
-    from mcp_proxy_for_aws.client import aws_iam_streamablehttp_client
 
     endpoint = agentcore_gateway_url()
     if not endpoint:
@@ -489,12 +568,27 @@ async def _agentcore_call_tool(query: str, max_results: int) -> list[dict]:
         )
     region = agentcore_region()
 
-    async with aws_iam_streamablehttp_client(
-        endpoint=endpoint,
-        aws_service="bedrock-agentcore",
-        aws_region=region,
-        timeout=45.0,
-    ) as streams:
+    if os.environ.get("AGENTCORE_CLIENT_ID", "").strip():
+        from mcp.client.streamable_http import (
+            create_mcp_http_client,
+            streamable_http_client,
+        )
+        token = await _agentcore_bearer_token()
+        http_client = create_mcp_http_client(
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=httpx.Timeout(45.0),
+        )
+        client_ctx = streamable_http_client(endpoint, http_client=http_client)
+    else:
+        from mcp_proxy_for_aws.client import aws_iam_streamablehttp_client
+        client_ctx = aws_iam_streamablehttp_client(
+            endpoint=endpoint,
+            aws_service="bedrock-agentcore",
+            aws_region=region,
+            timeout=45.0,
+        )
+
+    async with client_ctx as streams:
         read, write, _get_session_id = streams
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -670,6 +764,7 @@ async def web_search(
         "agentcore": search_agentcore,
         "exa": search_exa,
         "searxng": search_searxng,
+        "google_cse": search_google_cse,
     }
     raw, parsed, debug = "", [], {}
     attempts = []
@@ -680,8 +775,9 @@ async def web_search(
             )
         except Exception as e:
             attempts.append(f"{b}:error:{type(e).__name__}")
-            if b == chain[-1] and not parsed:
-                raise
+            # Never raise out of the chain: an erroring search tool makes the
+            # agent retry and burn turns (observed: submit rate 97%->54% when
+            # backends threw). Total failure degrades to an empty result set.
             continue
         if parsed:
             attempts.append(f"{b}:ok")

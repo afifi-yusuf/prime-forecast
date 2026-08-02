@@ -25,12 +25,14 @@ skip_first_step = false
 
 [[eval.env]]
 id = "yafifi/prime-forecast"
+name = "test-market-on"
 args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = true }
 num_examples = 265
 rollouts_per_example = 1
 
 [[eval.env]]
 id = "yafifi/prime-forecast"
+name = "test-market-off"
 args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = false }
 num_examples = 265
 rollouts_per_example = 1
