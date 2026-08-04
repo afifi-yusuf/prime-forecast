@@ -96,9 +96,11 @@ Both remaining cells measured platform-served on the same 265 test questions
   materialize: even with retrieval folded into the RL loop, accuracy gains
   come from the scaffold, not the weights — extending Mantic's
   scaffold-dominates-weights decomposition to the trained-retrieval setting.
-- **Finding 6 (training buys calibration):** ECE falls ~30% in both columns
-  (0.170→0.119 tools-on; 0.185→0.127 tools-off). The calibration gain
-  survives complete removal of the crowd anchor — internalized, not borrowed.
+- **Finding 6 (training buys calibration):** ECE falls 30–40% in every
+  train/eval pair (market-on 0.099→0.065; market-off 0.185→0.127; v3
+  0.170→0.103; all submitted-only — see RESULTS.md Corrections C1/C2). The
+  gain survives complete removal of the crowd anchor — internalized, not
+  borrowed.
   Together with the behavioral transformations (coverage 64→100%, 3×
   crowd-independence, turn efficiency), this is what outcome-based RLVR
   actually teaches at this scale.
@@ -140,11 +142,14 @@ frozen research context). We ran Claude Sonnet 4.5, Gemini 3.1 Pro and Gemini
 | base 35B | 0.215 | 0.170 |
 | crowd | 0.189 | — |
 
-- **Finding 7 (two axes):** accuracy is scaffold-bound — five policies from 3B
-  active params to frontier scale sit in one 0.19–0.22 band with overlapping
-  CIs and none beats the market — while **calibration tracks capability
-  monotonically** (0.062 → 0.170 across the ladder). The harness equalizes
-  *what you can find out*; the weights determine *how honestly you report it*.
+- **Finding 7 (two axes, corrected 2026-08-04):** accuracy is scaffold-bound
+  — six policies from 3B-active to frontier sit in one 0.186–0.215 band and
+  none beats the market — while **calibration is trainable, not
+  scale-bound**: with market tools the trained 35B (ECE 0.065) matches
+  Sonnet (0.063); the poorly calibrated policies are the UNTRAINED ones
+  (base 0.099) and frontier models denied the anchor (0.130–0.219). An
+  earlier "monotone in capability" version of this finding rested on
+  carried-over v1 numbers and is retracted (RESULTS.md Corrections C1).
 - Our RL run advances the open 35B roughly a third of the calibration gap
   toward frontier models at ~1/10th inference cost, and closes the coverage gap
   entirely (64%→100% submit, matching or exceeding every frontier row).
@@ -214,7 +219,7 @@ crowd-copy penalty — nothing visible to copy). Launched 2026-07-31.
 | | base (step 0) | trained v3 (step 33) |
 |---|---|---|
 | soft-Brier | 0.261 [0.235, 0.287] | **0.245 [0.221, 0.268]** |
-| ECE (0.5-imputed) | 0.160 | **0.110** |
+| ECE (submitted-only) | 0.170 | **0.103** |
 | submit | 74% | 98% |
 | pred p10/p50/p90 | 0.10 / 0.35 / 0.63 | 0.15 / **0.35** / 0.55 |
 | extreme preds (<0.1 or >0.9) | 10% | **2%** |
