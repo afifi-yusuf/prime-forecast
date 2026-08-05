@@ -253,7 +253,7 @@ base rate 0.355 exactly; extremes collapse 10%→2%; spread narrows to
 Identical to v3 (no market tools, pure Brier, single epoch over 2,113
 questions) except web search functions: agentcore-only backend (licensed
 AWS API, uniform quality across all 33 steps), verified end-to-end through
-the leak filter at launch. v3 is the exactly-matched dead-search control.
+the leak filter at launch. v3 is the exactly-matched web-search-off control.
 In-run evals at steps 0/33 in BOTH market conditions (named envs).
 
 **Pre-registered predictions (committed before launch, 2026-08-04):**
@@ -293,7 +293,7 @@ reasoning traces at step 1 — metrics alone showed a healthy run.
 r64dayfbiabgbipv7sfhdzg9 from step 22; endpoint step 33; webhook
 `v4_continue_webhook.jsonl.gz` + `v4_run_webhook_partial.jsonl.gz`):**
 
-| | v4 base+search (step 0) | v4 trained+search (step 33) | v3 trained (dead search) |
+| | v4 base+search (step 0) | v4 trained+search (step 33) | v3 trained (web-search-off) |
 |---|---|---|---|
 | soft-Brier | ~0.269 | **0.2545 [.234,.275]** (pooled 530) | 0.2446 [.221,.268] |
 | ECE (sub-only) | ~0.17 | 0.128 | 0.103 |
@@ -318,7 +318,7 @@ r64dayfbiabgbipv7sfhdzg9 from step 22; endpoint step 33; webhook
   transformed behavior — the base-rate anchor dissolved (0.35→0.40 median,
   extremes 2%→12%), traces show evidence-quoting, bounds arguments, learned
   search economy and leak-aware query phrasing — while accuracy did NOT
-  improve over the dead-search control (0.2545 vs 0.2446, n.s.), and
+  improve over the web-search-off control (0.2545 vs 0.2446, n.s.), and
   search-worth for the UNTRAINED base is ≈0 too (0.269 with vs 0.261
   without, n.s.). At single-epoch scale, evidence-driven confidence
   replaced base-rate moderation at no net Brier gain: research is the

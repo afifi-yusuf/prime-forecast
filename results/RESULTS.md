@@ -17,7 +17,7 @@ claims about "agentic web research" are NOT supported by these data. A
 working, ban-proof search stack (AgentCore API + fallback chain, verified
 end-to-end 2026-08-02) exists for the planned v4 run — retrieval-in-the-loop
 training with functioning search — pending compute credits. v3 then serves as
-v4's exactly-matched dead-search control.
+v4's exactly-matched web-search-off control.
 
 ## Findings index
 
@@ -54,7 +54,7 @@ v4's exactly-matched dead-search control.
     WORKING search (agentcore, leak-fixed), training dissolved the base-rate
     anchor (median 0.35→0.40, extremes 2%→12%) and produced search economy
     (3.4→2.25/rollout) and evidence-based reasoning — but the endpoint
-    (0.2545 [.234,.275]) does not beat the dead-search control v3 (0.2446),
+    (0.2545 [.234,.275]) does not beat the web-search-off control v3 (0.2446),
     and search-worth ≈ 0 ± 0.02 for base and trained alike. The second
     information channel measured; only the crowd anchor ever paid.
 10. **The anchor ladder** (v3, pre-registered): with no market tools at all,
@@ -142,7 +142,7 @@ Paired (base − trained) = **+0.016 ± 0.025 (t=1.25, n.s.)** — 4× the v2
 effect, below significance at n=265. Median prediction = dataset base rate
 (0.355): base-rate herding as pre-registered (Finding 10). Searches/rollout
 flat (~4→3.9): the policy herded rather than searched — interpretation
-scoped by the dead-search regime (searching WAS futile; v4 separates
+scoped by the web-search-off regime (see search audit) (searching WAS futile; v4 separates
 RL-nature from starvation). In the matched no-market column, trained v3
 (0.245) is the best point estimate alongside Sonnet (0.246), ahead of v2
 (0.250), base (0.254), Flash (0.259), Pro (0.272).
