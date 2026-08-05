@@ -208,6 +208,19 @@ agent turns on retries).
 - Trained models are search-naive (trained under dead search): any future
   search-on evaluation of v2/v3 measures scaffold transfer, not trained
   retrieval. v4 (train WITH search) is the designed fix.
+- **Selection-criteria audit (2026-08-04, EQP D28-style):** three dataset
+  design elements are hindsight-conditioned (not computable at cutoff t):
+  (a) resolved-only membership — voided/unresolved markets excluded using
+  post-cutoff information (partially mitigated: candidates are fetched by
+  scheduled end-date windows, which ARE t-computable); (b) the lifetime-
+  volume filter (>=5000) and volume-ranked category caps use total volume
+  including post-cutoff trading; (c) cutoff placement is sampled relative
+  to the realized resolution date, not the scheduled close (Turtel uses
+  scheduled close). None of these leaks outcome direction into context,
+  and all reported comparisons are internal to the same dataset — but the
+  question distribution itself is defined with post-t information, which
+  scopes external validity. (a) is genre-universal; (c) is fixable in any
+  future build by sampling cutoffs against scheduled close.
 
 ## Archive: v1 run (superseded; grounds Findings 1–2)
 
