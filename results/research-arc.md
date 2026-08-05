@@ -289,7 +289,43 @@ replayed post-fix returns zero kept results. Predictions unchanged;
 relaunched. Cost of aborted attempt ~$5. Detection method: reading
 reasoning traces at step 1 — metrics alone showed a healthy run.
 
-Results: PENDING.
+**Results (run basziye6yz7sco8w7b4erepk = warm-start continuation of
+r64dayfbiabgbipv7sfhdzg9 from step 22; endpoint step 33; webhook
+`v4_continue_webhook.jsonl.gz` + `v4_run_webhook_partial.jsonl.gz`):**
+
+| | v4 base+search (step 0) | v4 trained+search (step 33) | v3 trained (dead search) |
+|---|---|---|---|
+| soft-Brier | ~0.269 | **0.2545 [.234,.275]** (pooled 530) | 0.2446 [.221,.268] |
+| ECE (sub-only) | ~0.17 | 0.128 | 0.103 |
+| submit | 78% | 99.6% | 98% |
+| median pred | — | **0.40** | 0.35 (= base rate) |
+| extreme preds | — | **12%** | 2% |
+| searches/rollout | 3.4 | **2.25** | ~3.9 (futile) |
+
+**Pre-registration scorecard (6 predictions):**
+1. Submit saturation ✓ (99.6%)
+2. ECE 0.09–0.13 ✓ (0.128, upper edge)
+3. Searches rise vs v3 ✗ — they FELL (3.4→2.25): learned search economy
+4. Partial de-herding ✓✓ — median 0.35→0.40, extremes 2%→12%, p90 0.81
+5. Resolution gain exceeds v3's ✗ — gain ≈ +0.014 (≈ v3's +0.016); endpoint
+   0.2545 vs v3's 0.2446 (overlapping CIs, n.s.)
+6. Transfer anchor-worth ≈ 0: SCORE-level ✓ (market-on 0.2696 vs off 0.2705)
+   but MECHANISM falsified — the policy engages never-trained market tools
+   zero-shot (0.4–0.65 calls/rollout; per-question |p_on−p_off| median
+   0.120, p90 0.43) yet extracts no net Brier from them.
+
+- **Finding 11 (search de-herds but does not pay):** working retrieval
+  transformed behavior — the base-rate anchor dissolved (0.35→0.40 median,
+  extremes 2%→12%), traces show evidence-quoting, bounds arguments, learned
+  search economy and leak-aware query phrasing — while accuracy did NOT
+  improve over the dead-search control (0.2545 vs 0.2446, n.s.), and
+  search-worth for the UNTRAINED base is ≈0 too (0.269 with vs 0.261
+  without, n.s.). At single-epoch scale, evidence-driven confidence
+  replaced base-rate moderation at no net Brier gain: research is the
+  expensive strategy whose premium data scale has to fund; anchors are the
+  cheap one, and Brier at n=2k does not pay the premium. Completes the
+  two-axis decomposition: the crowd anchor is worth +0.04–0.075; web
+  search ≈ +0.00 ± 0.02 — for everyone measured.
 
 ## How this compares to the genre's publishable claims
 

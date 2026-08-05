@@ -50,6 +50,13 @@ v4's exactly-matched dead-search control.
    both 35Bs +0.039, all p<0.001. Frontier models lean on the crowd MORE
    than small models; "small trained model beats frontier" reproduces on
    demand by toggling who sees the market.
+10a. **Search de-herds but does not pay** (v4, pre-registered 4.5/6): with
+    WORKING search (agentcore, leak-fixed), training dissolved the base-rate
+    anchor (median 0.35→0.40, extremes 2%→12%) and produced search economy
+    (3.4→2.25/rollout) and evidence-based reasoning — but the endpoint
+    (0.2545 [.234,.275]) does not beat the dead-search control v3 (0.2446),
+    and search-worth ≈ 0 ± 0.02 for base and trained alike. The second
+    information channel measured; only the crowd anchor ever paid.
 10. **The anchor ladder** (v3, pre-registered): with no market tools at all,
     the trained policy parked its median prediction at 0.35 — the dataset
     YES base rate is 0.355 — with extreme predictions collapsing 10%→2%.
