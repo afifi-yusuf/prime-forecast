@@ -248,6 +248,37 @@ base rate 0.355 exactly; extremes collapse 10%→2%; spread narrows to
   best frontier point estimate in the genre-comparable (no-market) agentic
   condition.
 
+## Experiment 7 — v4: no-market training with WORKING search
+
+Identical to v3 (no market tools, pure Brier, single epoch over 2,113
+questions) except web search functions: agentcore-only backend (licensed
+AWS API, uniform quality across all 33 steps), verified end-to-end through
+the leak filter at launch. v3 is the exactly-matched dead-search control.
+In-run evals at steps 0/33 in BOTH market conditions (named envs).
+
+**Pre-registered predictions (committed before launch, 2026-08-04):**
+
+1. Submit saturates ~100% by ~step 15 (near-certain; three prior runs).
+2. Calibration improves again (~85% confidence): trained ECE lands
+   0.09–0.13 submitted-only (from base ~0.17).
+3. **Search-utilization:** searches/rollout and lookup_url follow-ups rise
+   vs v3 (~65% confidence) — results now contain content worth reading.
+4. **Herding (the headline question):** partial de-herding (~55%
+   confidence): prediction spread widens vs v3 (extremes >2%, p10–p90
+   wider than [0.15, 0.55]). Full de-herding (median leaves the base
+   rate) NOT expected at 2k questions.
+5. **Resolution:** paired base−trained gain exceeds v3's +0.016; final
+   trained soft-Brier 0.230–0.245; significance at n=265 still unlikely
+   (~30% chance t>2). Base-with-search (step 0) improves on v3's base
+   (0.245–0.255 vs 0.261) — search helps even untrained.
+6. **Transfer cell (market-on eval of the no-market-trained policy):** the
+   policy largely ignores tools it never learned — its anchor-worth ≈ 0
+   (|market-on − market-off| < 0.01), in sharp contrast to +0.039 for
+   v2/base. Falsifiable and diagnostic: a large anchor-worth here would
+   mean anchor exploitation is zero-shot, not learned.
+
+Results: PENDING.
+
 ## How this compares to the genre's publishable claims
 
 Turtel: large Brier gain over a weak 14B base + parity with o1; no
