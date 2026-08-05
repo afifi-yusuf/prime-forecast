@@ -1,0 +1,56 @@
+# v4 CONTINUATION: warm-start from run r64dayfbiabgbipv7sfhdzg9 step-22
+# checkpoint (credit exhaustion killed the original at step 29; no step-29
+# checkpoint exists). Trains steps 23-33 + final dual-condition eval.
+# skip_first_step=true: base eval already captured in the original run's
+# step 0 (results/v4_run_webhook_partial.jsonl.gz).
+# Submit with:  prime train run configs/rl/prime-forecast-35b-v4-continue.toml
+
+model = "Qwen/Qwen3.5-35B-A3B"
+checkpoint_id = "mo3l86ms9mt3b7fb8lzvcfpj"  # r64dayfbiabgbipv7sfhdzg9 step 22
+max_steps = 33
+batch_size = 64
+rollouts_per_example = 8
+env_file = ["../../secrets.env", "../../eval-searxng.env"]
+
+[sampling]
+max_tokens = 12288
+enable_thinking = true
+
+[[env]]
+id = "yafifi/prime-forecast"
+args = { split = "train", max_turns = 10, max_web_searches = 3, include_market_tools = false }
+
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[val]
+num_examples = 32
+rollouts_per_example = 1
+interval = 11
+
+[eval]
+interval = 33
+skip_first_step = true  # base eval already banked from original run step 0
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+name = "test-market-off"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = false }
+num_examples = 265
+rollouts_per_example = 1
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+name = "test-market-on"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = true }
+num_examples = 265
+rollouts_per_example = 1
+
+[checkpoints]
+interval = 11
+keep_cloud = -1
+
+[adapters]
+interval = 11
+keep_last = -1
