@@ -277,6 +277,18 @@ In-run evals at steps 0/33 in BOTH market conditions (named envs).
    v2/base. Falsifiable and diagnostic: a large anchor-worth here would
    mean anchor exploitation is zero-shot, not learned.
 
+**Launch note (2026-08-04):** first v4 launch (xzmqo4zhka0okx2btx9gkwaf)
+aborted at step ~2 after trace audit caught a leak: AgentCore's verbose
+date format ("02:01PM, Friday, July 31 2026, PDT") was unparseable by
+parse_ts, so results entered the pipeline as undated — bypassing the hard
+post-cutoff drop and relying solely on the LLM filter, which missed at
+least one post-release macro article (Mexico Feb unemployment: retrieved
+the resolved figure 11 days after cutoff; reward 0.998 for leaked
+knowledge). Fixed in env 0.1.18 (verbose-date parsing); the leaked query
+replayed post-fix returns zero kept results. Predictions unchanged;
+relaunched. Cost of aborted attempt ~$5. Detection method: reading
+reasoning traces at step 1 — metrics alone showed a healthy run.
+
 Results: PENDING.
 
 ## How this compares to the genre's publishable claims

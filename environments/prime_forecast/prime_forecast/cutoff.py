@@ -79,7 +79,31 @@ def parse_ts(value) -> datetime | None:
                             int(ss or 0), tzinfo=timezone.utc)
         except ValueError:
             return None
+    # Verbose formats, e.g. AgentCore's "02:01PM, Friday, July 31 2026, PDT"
+    # or "July 31, 2026". Unparsed dates make results look undated, which
+    # bypasses the hard post-cutoff drop (observed leak in v4 step-1 traces).
+    m = _VERBOSE_DATE_RE.search(s)
+    if m:
+        month, day, year = m.group(1), int(m.group(2)), int(m.group(3))
+        mo = _MONTHS.get(month.lower()[:3])
+        if mo:
+            try:
+                return datetime(year, mo, day, tzinfo=timezone.utc)
+            except ValueError:
+                return None
     return None
+
+
+_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_VERBOSE_DATE_RE = re.compile(
+    r"(January|February|March|April|May|June|July|August|September|October|"
+    r"November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+    r"\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})",
+    re.IGNORECASE,
+)
 
 
 def find_dates_after(text: str, cutoff: datetime) -> list[str]:
