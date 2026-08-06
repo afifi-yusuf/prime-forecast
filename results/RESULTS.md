@@ -79,6 +79,22 @@ v4's exactly-matched web-search-off control.
     regularity available; resolution moves only as anchors are exhausted
     (v3 paired gain +0.016 vs v2's −0.001, still n.s. at n=265).
 
+## Grand summary (all cells, final)
+
+**Training 2×2 (endpoint soft-Brier, matched eval):** v2 market/dead 0.211 ·
+v5 market/search 0.224 · v3 nomarket/dead 0.245 · v4 nomarket/search 0.254.
+Search never improved a trained endpoint.
+
+**Search-OFF arm** — market-ON: Opus 0.186, Sonnet 0.191, Flash 0.196,
+Pro 0.197, v2 0.211, base 0.215, crowd 0.189. market-OFF: v3 0.245,
+Sonnet 0.246, v2† 0.250, base 0.254, Flash 0.259, Pro 0.272.
+
+**Search-ON arm** — market-ON: Flash 0.189, Pro 0.207*, Opus 0.208,
+Sonnet 0.217, v5 0.224, base ~0.258. market-OFF: v5 0.252, v4 0.254,
+Opus 0.256, base ~0.261–0.269, Sonnet 0.273, Pro 0.278, Flash 0.286.
+
+† step-22 checkpoint. * n=231 partial. Full ECEs in the per-section tables.
+
 ## Headline tables
 
 All on the v4 test split (n=265 resolved Polymarket questions, resolutions
