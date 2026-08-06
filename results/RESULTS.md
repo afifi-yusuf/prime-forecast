@@ -57,6 +57,14 @@ v4's exactly-matched web-search-off control.
     (0.2545 [.234,.275]) does not beat the web-search-off control v3 (0.2446),
     and search-worth ≈ 0 ± 0.02 for base and trained alike. The second
     information channel measured; only the crowd anchor ever paid.
+13. **Search never pays, trained or frontier** (v5 completes the 2×2):
+    thirteen search-ablation contrasts across nine policies; working
+    search improved Brier once (Flash market-on −0.007), hurt or did
+    nothing twelve times — including the trained-with-both-channels v5
+    endpoint (0.2235 vs dead-search v2's 0.211). v5's behavior is the
+    richest measured (adaptive search 1.53↔2.35 by anchor availability,
+    price-as-evidence at median distance 0.125) and its score the worst
+    of the trained family: behavior and Brier fully decoupled.
 12. **Search degrades frontier forecasters** (8-cell campaign, complete
     2026-08-06): 7 of 8 frontier search-worth cells negative-value (+0.006
     to +0.027 Brier); sole exception (Flash market-on, −0.007) kept the

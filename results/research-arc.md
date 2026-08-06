@@ -350,7 +350,48 @@ cell (Flash market-on: search helped only under tight anchor discipline).
    finds it. If found, expect market-on ~0.185–0.195 and the first
    crowd-parity trained policy.
 
-Results: PENDING.
+**Results (run zvxexo358vrhg9mkmtzhmhyc, endpoint step 33, n=265×2):**
+
+| | market-on eval | market-off eval |
+|---|---|---|
+| soft-Brier | **0.2235** | 0.2521 |
+| searches/rollout | 1.53 | 2.35 |
+| market calls/rollout | 1.71 | 0 |
+| pred mean / p10–p90 | 0.384 / 0.15–0.78 | 0.445 / 0.15–0.78 |
+| median \|p−crowd\| (pooled) | 0.125 | — |
+
+**Pre-registration scorecard: 2 of 6** — our worst, and the informative kind.
+(1) submit saturation ✓ (97–99%); (5) market-off transfer degrades to
+0.24–0.27 ✓ (0.2521). Wrong: (2) anchoring did NOT return — median
+\|p−crowd\| 0.125, nowhere near the predicted <0.06 camp; with pure Brier
+and working search the policy stays evidence-driven (7% extremes, wide
+spread) and treats the price as ONE input (per-question \|p_on−p_off\|
+median 0.170, extracting +0.029 Brier from anchor access) rather than an
+answer to copy. (3) search did not collapse — it became ADAPTIVE:
+1.53/rollout when the anchor is available, 2.35 without it — the policy
+arbitrates channels by context. (4,6) the endpoint missed both the
+predicted anchor-camp band and the Flash pattern: 0.2235 is WORSE than
+dead-search v2 (0.211) in the same condition.
+
+- **Finding 13 (search is weakly toxic under efficient prices — now
+  including trained policies):** completing the training 2×2 shows working
+  search never improved any trained endpoint: market-on 0.211 (v2, dead) →
+  0.2235 (v5, working; +0.013 worse); market-off 0.2446 (v3, dead) →
+  0.2521/0.2545 (v5-off/v4, working). Combined with Finding 12 (7 of 8
+  frontier cells degraded), the unified statement: across nine policies
+  and thirteen search-ablation contrasts, working web search improved
+  Brier exactly once (Flash market-on, −0.007) and hurt or did nothing
+  twelve times. Evidence-driven deviation from an efficient price is the
+  common mechanism; v5 shows a full training run cannot RL its way out at
+  this scale.
+- **Behavioral novelty worth keeping:** v5 neither camped on the crowd
+  (v1: 0.028; v2: 0.080) nor herded to the base rate (v3): with both
+  channels live and no shaping penalty, RL produced an evidence-weighing
+  policy with adaptive channel arbitration — the richest learned behavior
+  of the five runs, and the worst market-on Brier of the trained family.
+  Behavior and score decoupled completely. Attribution caveat: v5 differs
+  from v2 in two factors (penalty removed AND search added), so the
+  no-camping result cannot be attributed to either alone.
 
 ## How this compares to the genre's publishable claims
 
