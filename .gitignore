@@ -9,3 +9,5 @@ outputs/
 wandb/
 .DS_Store
 checkpoints/
+eqp-briefing-local.md
+artifacts/
