@@ -42,7 +42,7 @@ measure scaffold allocation, not capability.
 
 **What training bought that scale did not.** The affirmative result is
 robustness. The search-trained policy is the only one measured whose
-performance survives working retrieval unchanged, and it ends
+performance survives functioning retrieval unchanged, and it ends
 statistically tied with Opus 4.5 atop the evidence-based column at
 roughly one-hundredth the inference cost. We read this as evidence that
 *evidence discipline* — when to search, how much to trust what returns,

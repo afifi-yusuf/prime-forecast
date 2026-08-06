@@ -61,7 +61,7 @@ v4's exactly-matched web-search-off control.
     thirteen search-ablation contrasts across nine policies; working
     search improved Brier once (Flash market-on −0.007), hurt or did
     nothing twelve times — including the trained-with-both-channels v5
-    endpoint (0.2235 vs dead-search v2's 0.211). v5's behavior is the
+    endpoint (0.2235 vs search-off v2's 0.211). v5's behavior is the
     richest measured (adaptive search 1.53↔2.35 by anchor availability,
     price-as-evidence at median distance 0.125) and its score the worst
     of the trained family: behavior and Brier fully decoupled.
@@ -81,8 +81,8 @@ v4's exactly-matched web-search-off control.
 
 ## Grand summary (all cells, final)
 
-**Training 2×2 (endpoint soft-Brier, matched eval):** v2 market/dead 0.211 ·
-v5 market/search 0.224 · v3 nomarket/dead 0.245 · v4 nomarket/search 0.254.
+**Training 2×2 (endpoint soft-Brier, matched eval):** v2 market-on/search-off 0.211 ·
+v5 market-on/search-on 0.224 · v3 market-off/search-off 0.245 · v4 market-off/search-on 0.254.
 Search never improved a trained endpoint.
 
 **Search-OFF arm** — market-ON: Opus 0.186, Sonnet 0.191, Flash 0.196,

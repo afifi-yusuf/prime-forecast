@@ -314,7 +314,7 @@ r64dayfbiabgbipv7sfhdzg9 from step 22; endpoint step 33; webhook
    zero-shot (0.4–0.65 calls/rollout; per-question |p_on−p_off| median
    0.120, p90 0.43) yet extracts no net Brier from them.
 
-- **Finding 11 (search de-herds but does not pay):** working retrieval
+- **Finding 11 (search de-herds but does not pay):** functioning retrieval
   transformed behavior — the base-rate anchor dissolved (0.35→0.40 median,
   extremes 2%→12%), traces show evidence-quoting, bounds arguments, learned
   search economy and leak-aware query phrasing — while accuracy did NOT
@@ -327,7 +327,7 @@ r64dayfbiabgbipv7sfhdzg9 from step 22; endpoint step 33; webhook
   two-axis decomposition: the crowd anchor is worth +0.04–0.075; web
   search ≈ +0.00 ± 0.02 — for everyone measured.
 
-## Experiment 8 — v5: market tools + working search (the final 2×2 cell)
+## Experiment 8 — v5: market tools + search-on retrieval (the final 2×2 cell)
 
 Pure Brier, no anti-anchoring penalty, single epoch, env 0.1.18; both
 information channels functional. Motivated by Finding 12's sole positive
@@ -364,20 +364,20 @@ cell (Flash market-on: search helped only under tight anchor discipline).
 (1) submit saturation ✓ (97–99%); (5) market-off transfer degrades to
 0.24–0.27 ✓ (0.2521). Wrong: (2) anchoring did NOT return — median
 \|p−crowd\| 0.125, nowhere near the predicted <0.06 camp; with pure Brier
-and working search the policy stays evidence-driven (7% extremes, wide
+and search-on retrieval the policy stays evidence-driven (7% extremes, wide
 spread) and treats the price as ONE input (per-question \|p_on−p_off\|
 median 0.170, extracting +0.029 Brier from anchor access) rather than an
 answer to copy. (3) search did not collapse — it became ADAPTIVE:
 1.53/rollout when the anchor is available, 2.35 without it — the policy
 arbitrates channels by context. (4,6) the endpoint missed both the
 predicted anchor-camp band and the Flash pattern: 0.2235 is WORSE than
-dead-search v2 (0.211) in the same condition.
+search-off v2 (0.211) in the same condition.
 
 - **Finding 13 (search is weakly toxic under efficient prices — now
   including trained policies):** completing the training 2×2 shows working
-  search never improved any trained endpoint: market-on 0.211 (v2, dead) →
-  0.2235 (v5, working; +0.013 worse); market-off 0.2446 (v3, dead) →
-  0.2521/0.2545 (v5-off/v4, working). Combined with Finding 12 (7 of 8
+  search never improved any trained endpoint: market-on 0.211 (v2, search-off) →
+  0.2235 (v5, search-on; +0.013 worse); market-off 0.2446 (v3, search-off) →
+  0.2521/0.2545 (v5-off/v4, search-on). Combined with Finding 12 (7 of 8
   frontier cells degraded), the unified statement: across nine policies
   and thirteen search-ablation contrasts, working web search improved
   Brier exactly once (Flash market-on, −0.007) and hurt or did nothing

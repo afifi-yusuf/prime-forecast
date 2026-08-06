@@ -40,7 +40,7 @@ The genre's comparison is unidentified until the anchor is controlled.
 
 **Web search — the channel assumed to drive agentic forecasting — is
 worth approximately nothing, and frequently less.** In eight frontier
-search-ablation cells, working retrieval *degraded* performance in seven
+search-ablation cells, functioning retrieval *degraded* performance in seven
 (+0.006 to +0.027 Brier): retrieved public news is stale relative to an
 efficient market price, and evidence-driven deviation from the crowd
 loses. The sole exception kept the tightest crowd anchor of any policy
@@ -60,8 +60,8 @@ single-epoch reward does not pay for.
 
 **Training with retrieval in the loop buys robustness that scale does
 not.** Our search-trained 35B is the only policy measured that does not
-degrade when given working retrieval, and it tops the "fair fight" column
-— no market access, working search — at 0.254, statistically tied with
+degrade when given functioning retrieval, and it tops the "fair fight" column
+— no market access, search-on retrieval — at 0.254, statistically tied with
 Claude Opus 4.5 (0.256) and ahead of Sonnet, Gemini Pro, and Flash, at
 roughly one-hundredth of frontier inference cost.
 

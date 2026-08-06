@@ -125,7 +125,7 @@ accuracy gains demanded an order of magnitude more training data than we
 deploy. One scope note applies (§8): in the no-live-search regime,
 research was largely futile, so v3 alone cannot distinguish "RL prefers
 anchors to research" from "RL anchors when research is unavailable." The
-staged v4 run — identical to v3 with a verified working search stack —
+staged v4 run — identical to v3 with a verified search-on retrieval stack —
 separates these hypotheses, with v3 as its exactly-matched control.
 
 The final placement is nonetheless notable: in the no-market condition,
