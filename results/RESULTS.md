@@ -156,6 +156,33 @@ narrows 0.145→0.059 (+0.0037/step, t=4.5); roughly half is the submit-rate
 rise; post-saturation trend +0.0021/step (t=1.5, suggestive). Neither
 reference paper difficulty-adjusts its curves.
 
+## Frontier search-worth (web-search-on arm, all cells complete 2026-08-06)
+
+Same harness/env 0.1.18 as v4; AgentCore search; leak filter active.
+Search-worth = working-search minus web-search-off soft-Brier (positive =
+search HURT). Pro market-on is an n=231 partial (overnight API stall,
+documented).
+
+| policy | market-ON: off-arm → on-arm | market-OFF: off-arm → on-arm |
+|---|---|---|
+| Opus 4.5 | 0.186 → 0.208 (+0.022) | (not measured) → 0.256 |
+| Sonnet 4.5 | 0.191 → 0.217 (+0.026) | 0.246 → 0.273 (+0.027) |
+| Gemini 3.6 Flash | 0.196 → 0.189 (−0.007) | 0.259 → 0.286 (+0.027) |
+| Gemini 3.1 Pro | 0.197 → 0.207* (+0.010) | 0.272 → 0.278 (+0.006) |
+| **trained 35B** (v3→v4) | — | 0.245 → 0.254 (+0.009 n.s.) |
+
+**Finding 12 (search degrades frontier forecasters):** 7 of 8 frontier
+search-worth cells are NEGATIVE-value (search hurt); the sole exception
+(Flash market-on, −0.007) kept the tightest crowd anchor of any policy
+(med |p−crowd| 0.040) — search helps only when subordinated to the anchor.
+Mechanism: retrieved public news is stale relative to an efficient price;
+evidence-driven deviation from the crowd loses (Sonnet P&L +$0.010→−$0.018).
+The search-trained 35B is the only policy that does not degrade, and tops
+the fair-fight column (search-on/no-market: 0.254 vs Opus 0.256, Sonnet
+0.273, Pro 0.278, Flash 0.286). Training with retrieval in the loop taught
+evidence discipline that frontier scale does not confer zero-shot. Raw:
+`*_searchon_*_eval.jsonl`.
+
 ## Search-health audit (the scope-defining measurement)
 
 Zero-result rate of web_search by eval (strict per-query trace parse):
