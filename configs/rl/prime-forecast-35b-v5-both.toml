@@ -1,0 +1,56 @@
+# v5 run: MARKET TOOLS ON + WORKING SEARCH — the final training-condition
+# 2x2 cell. Pure Brier, NO crowd-copy penalty: cleanest test of what the
+# reward naturally prefers when both information channels function.
+# Pre-registered question: does RL learn Flash-style anchor-disciplined
+# search (the only positive search-worth cell of the frontier campaign)?
+# Comparisons: v2 (market/dead-search), v4 (no-market/working-search).
+# Submit with:  prime train run configs/rl/prime-forecast-35b-v5-both.toml
+
+model = "Qwen/Qwen3.5-35B-A3B"
+max_steps = 33
+batch_size = 64
+rollouts_per_example = 8
+env_file = ["../../secrets.env", "../../eval-searxng.env"]
+
+[sampling]
+max_tokens = 12288
+enable_thinking = true
+
+[[env]]
+id = "yafifi/prime-forecast"
+args = { split = "train", max_turns = 10, max_web_searches = 3, include_market_tools = true }
+
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[val]
+num_examples = 32
+rollouts_per_example = 1
+interval = 11
+
+[eval]
+interval = 33
+skip_first_step = false  # step-0 eval = base model in the matched no-market condition
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+name = "test-market-off"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = false }
+num_examples = 265
+rollouts_per_example = 1
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+name = "test-market-on"
+args = { split = "test", eval_split = "test", max_turns = 10, max_web_searches = 3, include_market_tools = true }
+num_examples = 265
+rollouts_per_example = 1
+
+[checkpoints]
+interval = 11
+keep_cloud = -1
+
+[adapters]
+interval = 11
+keep_last = -1

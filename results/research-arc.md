@@ -327,6 +327,31 @@ r64dayfbiabgbipv7sfhdzg9 from step 22; endpoint step 33; webhook
   two-axis decomposition: the crowd anchor is worth +0.04–0.075; web
   search ≈ +0.00 ± 0.02 — for everyone measured.
 
+## Experiment 8 — v5: market tools + working search (the final 2×2 cell)
+
+Pure Brier, no anti-anchoring penalty, single epoch, env 0.1.18; both
+information channels functional. Motivated by Finding 12's sole positive
+cell (Flash market-on: search helped only under tight anchor discipline).
+
+**Pre-registered predictions (committed before launch, 2026-08-06):**
+
+1. Submit saturates ≥99% by step 15 (near-certain).
+2. Anchoring returns: median |p−crowd| < 0.06 by run end (~80%) — with no
+   penalty, the crowd is the cheapest reward source (v1 precedent 0.028).
+3. Search collapses below v4's rate: < 1.5 searches/rollout by late run
+   (~65%) — the anchor substitutes for research (anchor-ladder mechanism).
+4. Endpoint market-on soft-Brier 0.195–0.215 (~70%): near v2's 0.211,
+   anchor-following band; NOT beating the crowd (0.189) — P(beats crowd
+   point estimate) ~15%, P(significantly) <5%.
+5. Transfer cell (market-off eval): degrades hard, 0.24–0.27 — the policy
+   will have learned anchor-reliance, not evidence-discipline (~70%).
+6. THE LIVE QUESTION — anchor-disciplined search (Flash pattern: tight
+   |p−crowd| AND active productive search AND ECE < 0.07): ~25% the policy
+   finds it. If found, expect market-on ~0.185–0.195 and the first
+   crowd-parity trained policy.
+
+Results: PENDING.
+
 ## How this compares to the genre's publishable claims
 
 Turtel: large Brier gain over a weak 14B base + parity with o1; no
