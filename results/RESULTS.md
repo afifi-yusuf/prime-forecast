@@ -50,13 +50,19 @@ v4's exactly-matched web-search-off control.
    both 35Bs +0.039, all p<0.001. Frontier models lean on the crowd MORE
    than small models; "small trained model beats frontier" reproduces on
    demand by toggling who sees the market.
-10a. **Search de-herds but does not pay** (v4, pre-registered 4.5/6): with
+11. **Search de-herds but does not pay** (v4, pre-registered 4.5/6): with
     WORKING search (agentcore, leak-fixed), training dissolved the base-rate
     anchor (median 0.35→0.40, extremes 2%→12%) and produced search economy
     (3.4→2.25/rollout) and evidence-based reasoning — but the endpoint
     (0.2545 [.234,.275]) does not beat the web-search-off control v3 (0.2446),
     and search-worth ≈ 0 ± 0.02 for base and trained alike. The second
     information channel measured; only the crowd anchor ever paid.
+12. **Search degrades frontier forecasters** (8-cell campaign, complete
+    2026-08-06): 7 of 8 frontier search-worth cells negative-value (+0.006
+    to +0.027 Brier); sole exception (Flash market-on, −0.007) kept the
+    tightest crowd anchor measured. The search-trained 35B alone is robust
+    and tops the fair-fight column. Mechanism: retrieved public news is
+    stale relative to an efficient price; evidence-driven deviation loses.
 10. **The anchor ladder** (v3, pre-registered): with no market tools at all,
     the trained policy parked its median prediction at 0.35 — the dataset
     YES base rate is 0.355 — with extreme predictions collapsing 10%→2%.
@@ -163,13 +169,21 @@ Search-worth = working-search minus web-search-off soft-Brier (positive =
 search HURT). Pro market-on is an n=231 partial (overnight API stall,
 documented).
 
-| policy | market-ON: off-arm → on-arm | market-OFF: off-arm → on-arm |
+| policy | market-ON: off→on arm (ECE on-arm) | market-OFF: off→on arm (ECE on-arm) |
 |---|---|---|
-| Opus 4.5 | 0.186 → 0.208 (+0.022) | (not measured) → 0.256 |
-| Sonnet 4.5 | 0.191 → 0.217 (+0.026) | 0.246 → 0.273 (+0.027) |
-| Gemini 3.6 Flash | 0.196 → 0.189 (−0.007) | 0.259 → 0.286 (+0.027) |
-| Gemini 3.1 Pro | 0.197 → 0.207* (+0.010) | 0.272 → 0.278 (+0.006) |
-| **trained 35B** (v3→v4) | — | 0.245 → 0.254 (+0.009 n.s.) |
+| Opus 4.5 | 0.186 → 0.208 (+0.022; ECE 0.082) | (unmeasured) → 0.256 (ECE 0.136) |
+| Sonnet 4.5 | 0.191 → 0.217 (+0.026; ECE 0.100) | 0.246 → 0.273 (+0.027; ECE 0.176) |
+| Gemini 3.6 Flash | 0.196 → 0.189 (−0.007; ECE 0.067) | 0.259 → 0.286 (+0.027; ECE 0.205) |
+| Gemini 3.1 Pro | 0.197 → 0.207* (+0.010; ECE 0.102) | 0.272 → 0.278 (+0.006; ECE 0.215) |
+| **trained 35B** (v3→v4) | — | 0.245 → 0.254 (+0.009 n.s.; ECE 0.103→0.128) |
+
+\* n=231 partial (overnight Vertex API stall at 230/265; eval killed and
+salvaged; missingness plausibly non-random toward long-reasoning rollouts).
+
+**The fair-fight column (web-search-on, market-off) final ordering:**
+trained 35B 0.254 ≤ Opus 0.256 < Sonnet 0.273 < Pro 0.278 < Flash 0.286;
+crowd 0.189. Point estimates, overlapping CIs at n=265; expanded n≈1,265
+eval (test_split_v5) planned to power the ordering.
 
 **Finding 12 (search degrades frontier forecasters):** 7 of 8 frontier
 search-worth cells are NEGATIVE-value (search hurt); the sole exception
