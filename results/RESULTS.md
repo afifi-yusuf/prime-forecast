@@ -198,6 +198,23 @@ Search-off arm measured 2026-07-30–31; search-on arm 2026-08-05–06 (env
 n/a→0.256), Flash −0.007/+0.027, Pro +0.010/+0.006*. Calibration doubles
 without the anchor for every frontier model (e.g. Pro .062→.219).
 
+## Exploratory: uncertain-question subset (pre-declared band, computed 2026-08-07)
+
+Motivation: Turtel et al.'s Fig. 3 shows skill concentrates where the
+market is uncertain. Subset rule (t-computable, no selection leakage):
+price_at_cutoff in [0.30, 0.70]; n=104 of 265. Evidence-based (market-off)
+cells, soft-Brier: crowd 0.232 · trained v3 0.276 · Opus(on-arm) 0.281 ·
+Sonnet 0.293/0.295 · Flash 0.319/0.321 · Pro 0.336.
+
+Paired (frontier − trained v3; + = trained better): vs Pro +0.059
+(t=2.18); vs Flash +0.045 (t=1.72); vs Sonnet +0.016 (n.s.); vs Opus
++0.005 (tie, cross-arm). Crowd remains significantly ahead of trained
+(t=2.05) even here. GRADE: exploratory, theory-motivated; the vs-Pro t
+does not survive 4-way multiple-comparison correction. Effect sizes are
+3–50× the full-set gaps, confirming discrimination concentrates on
+uncertain questions; the n=593 extension pre-registers this subset
+analysis as confirmatory.
+
 ## Corrections (append-only)
 
 - **C1 (2026-08-04).** Panel ECEs for trained/base were v1-era values
