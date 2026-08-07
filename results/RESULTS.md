@@ -3,6 +3,26 @@
 Narrative: `research-arc.md` · Reward evolution: `../docs/reward-design.md` ·
 Framing: `../docs/paper-framing.md` · Run map: `../docs/run-registry.md`
 
+## Abstract
+
+**Agentic RLVR lifts an open base model to frontier parity at
+evidence-based forecasting**: after ~$300 of training, our 35B-A3B (3B
+active) holds the best point estimate in both no-market evaluation
+columns — statistically tied with Claude Opus 4.5 and Sonnet 4.5 — with
+frontier-level calibration and a robustness to retrieval that no frontier
+model exhibits, at roughly 1/100th the inference cost. Decomposing where
+forecasting performance comes from explains the result: the market's own
+price dominates every policy's score (withholding it costs 0.039–0.075
+Brier, paired p<0.001, most for frontier models; nobody beats the crowd);
+web search never pays (1 of 13 ablation contrasts positive — retrieved
+news is stale relative to an efficient price); and outcome-based RL buys
+calibration and behavior through anchor-seeking (crowd → penalty boundary
+→ base rate, pre-registered), with retrieval-in-the-loop training
+replacing anchor-camping by evidence-weighing. Half these findings were
+invisible to aggregate metrics and surfaced only through trace-level
+audits, pre-registration, and append-only corrections — practices we
+argue are mandatory for agentic RL evaluation.
+
 ## Scope statement (read first)
 
 The project has two evaluation arms. The **search-off arm** originated as an
@@ -106,12 +126,17 @@ statistically the columns resolve into tiers, not ranks (n=265).
 
 | effect | size | grade |
 |---|---|---|
-| anchor-worth, frontier | +0.058…+0.075 | p<0.001 each |
+| anchor-worth, frontier | +0.058 to +0.075 | p<0.001 each |
 | anchor-worth, 35Bs | +0.039 | p<0.001 |
 | search-worth (13 contrasts) | −0.007 once; +0.006…+0.027 (or ~0) 12× | 12/13 direction |
-| training → resolution | −0.001 ± 0.020 matched; ≤+0.016 n.s. | bound |
+| training → resolution | ~0.000 matched; ≤+0.016 | bound |
 | training → calibration | −30–40% ECE every run | direction |
 | anchor ladder | 0.028 → 0.080 → base rate → 0.125 | pre-registered ×3 |
+
+CIs (stated once, not per cell): single-cell soft-Brier 95% CIs are
+±0.019–0.034 at n=265; paired anchor-worth CIs are ±0.024–0.035 (all
+excluding zero); the matched-subset resolution bound is ±0.020; per-run
+CIs appear in the per-run sections' prose.
 
 ## Per-run detail
 
