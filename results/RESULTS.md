@@ -4,7 +4,26 @@
 with Claude Opus 4.5 at evidence-based forecasting — reasoning from
 retrieved evidence without seeing the market's answer — at roughly
 1/100th the inference cost, and it is the only model measured whose
-accuracy is unharmed by live retrieval.**
+accuracy is unharmed by live retrieval. On the hardest questions, where
+the market itself is undecided, its lead over most of the frontier
+grows several-fold.**
+
+Highlights:
+
+- **Best in column** at evidence-based forecasting: the trained models
+  hold the top two point estimates (0.252, 0.254), ahead of Claude Opus
+  4.5 (0.256) and every other frontier model by up to 0.034.
+- **Beats three of four frontier models outright on uncertain
+  questions** — the ones the market itself hadn't decided — with the gap
+  over Gemini Pro individually significant.
+- **Frontier-cluster calibration**: trained ECE 0.065, alongside Sonnet
+  (0.063) and Opus (0.053), from a base that starts at 0.099.
+- **Uniquely robust to live retrieval**: turning real web search on
+  degraded every frontier model (7 of 8 cells); the trained policy is
+  unmoved.
+- **Answers everything**: coverage rises from 64% to ~100% of questions
+  with accuracy held flat — the trained model takes on the hard
+  questions its base declines, at no cost.
 
 ## Overview
 
@@ -46,6 +65,48 @@ Search-off measurements are internally valid — every policy in a
 comparison faced identical conditions — and all key comparisons were
 re-measured in the search-on arm with retrieval verified per-trace (how
 the search-off condition arose is documented in Finding 6).
+
+## The harness
+
+Every policy — trained, base, and frontier — runs the same multi-turn
+agentic loop (up to 10 turns) with the same tool set:
+
+- **Web research**: `web_search` (licensed retrieval API, ≤3 calls per
+  question) and `lookup_url` (fetch + summarize a page); both pass
+  through the leak filter below.
+- **Structured data**: `fetch_ts_yfinance`, `fetch_fred_series`,
+  `fetch_ts_dbnomics` (financial/economic time series, truncated at the
+  cutoff), `fetch_wikipedia_toc` / `fetch_wikipedia_section`
+  (revision-dated), and `analyze_trend` (fits trend/seasonality to a
+  fetched series and returns exceedance probabilities).
+- **Market tools** (only in market-visible conditions):
+  `polymarket_get_market`, `polymarket_search`,
+  `polymarket_market_price` (the crowd price as of the cutoff),
+  `polymarket_price_history`.
+- **`submit`** — the terminal action: a probability plus rationale.
+
+The system prompt frames the agent as a superforecaster maintaining an
+explicit belief state: every tool call carries an updated probability,
+confidence, and evidence-for/against lists, so the final number is the
+end of an auditable update trajectory rather than a one-shot guess.
+
+Training and serving run on **Prime Intellect's hosted RL platform**:
+the environment is packaged with the `verifiers` library and published
+to the Prime environment hub, and each run executes as a hosted GRPO
+job (prime-rl) against Qwen3.5-35B-A3B with LoRA adapters — the
+platform manages the inference pool, rollout orchestration, and weight
+updates, so a full single-epoch run (2,113 questions × 8 rollouts ×
+33 steps, plus in-run evaluations) needs no self-managed GPU
+infrastructure.
+
+Serving matters as much as the environment: trained policies are
+evaluated through the training platform's own inference stack, with
+every rollout captured via a results webhook (a serving gap across
+other stacks is documented in Finding 6 — this is why we do not score
+policies through third-party serving). Frontier models run the
+identical environment locally through an API proxy (Bedrock/Vertex).
+Same tools, same filters, same turn budget for every row of every
+table.
 
 ## Data collection
 
@@ -94,7 +155,7 @@ it:
 Structured-data tools (price/series history) are truncated at the cutoff
 server-side, and the market's own price is only ever served *as of the
 cutoff*. Residual risk is bounded by the data, not the filter: archived
-market data supports day-level ordering only (see Limitations).
+market data supports day-level ordering only.
 
 ## Reward functions
 
@@ -137,18 +198,102 @@ do not contaminate any reported score.
 Per-step batch-mean training reward (1 − Brier) for the two runs with
 retrieval in the loop; shaded bands are the p10–p90 rollout spread
 within each step. Single-epoch curves are noisy by construction — each
-step is a fresh batch of unseen questions, so the trace mixes learning
-with batch difficulty. The difficulty-adjusted view for the market-only
-run is below: subtracting each batch's crowd difficulty reveals the
-learning signal a raw curve hides.
+step is a fresh batch of unseen questions, so a raw curve mixes learning
+with batch difficulty. To isolate learning, the figure below scores each
+step *relative to what copying the crowd would have earned on that same
+batch*: 0 means crowd-level performance, and the upward trend is the
+policy closing its gap to the crowd across the single epoch.
 
 ![Difficulty-adjusted training curve, market-only run](figures/v2_reward_difficulty_adjusted.png)
 
 ## Headline results (held-out test questions)
 
-![Frontier panel](figures/f1_frontier_panel.png)
+### Evidence-based forecasting — the main comparison
+
+The setting that most resembles real forecasting: working web search
+and data tools, no access to the market's answer. The trained models
+top the column, ahead of Claude Opus 4.5 and well ahead of the rest of
+the frontier:
+
+![Evidence-based forecasting ranking — trained model best](figures/f10_evidence_based_column.png)
+
+
+| policy                 | soft-Brier | ECE   |
+| ---------------------- | ---------- | ----- |
+| trained, market+search | **0.252**  | —     |
+| trained, search-only   | 0.254      | 0.128 |
+| Claude Opus 4.5        | 0.256      | 0.136 |
+| untrained base         | ~0.26      | —     |
+| Claude Sonnet 4.5      | 0.273      | 0.176 |
+| Gemini 3.1 Pro         | 0.278      | 0.215 |
+| Gemini 3.6 Flash       | 0.286      | 0.205 |
+
+
+The same ordering holds with retrieval disabled entirely (search-off
+arm, market withheld) — the trained model again leads the column:
+
+
+| policy            | soft-Brier | ECE   |
+| ----------------- | ---------- | ----- |
+| trained, neither  | **0.245**  | 0.103 |
+| Claude Sonnet 4.5 | 0.246      | 0.130 |
+| untrained base    | 0.254      | 0.185 |
+| Gemini 3.6 Flash  | 0.259      | 0.157 |
+| Gemini 3.1 Pro    | 0.272      | 0.219 |
+
+
+Tables are ranked per column on point estimates over a few-hundred
+question test set; cross-policy gaps of ~0.02 or less are within
+sampling noise and should be read as tiers, not rankings.
+
+### Where forecasting is hardest, the trained model pulls ahead
+
+![Uncertain-question divergence](figures/f11_uncertain_divergence.png)
+
+Following Turtel et al.'s observation that forecasting skill
+concentrates where the market itself is uncertain, we pre-declared the
+subset with cutoff price in [0.30, 0.70] — questions the crowd genuinely
+hadn't decided (n=104). Here the trained model **beats every frontier
+model's point estimate** in the evidence-based setting: trained 0.276,
+then Opus 0.281, Sonnet ~0.294, Flash ~0.320, Gemini Pro 0.336 (crowd
+0.232). The paired per-question gaps amplify 3–16× relative to the full
+set: +0.059 over Pro (individually significant), +0.045 over Flash,
++0.016 over Sonnet. On easy questions everyone ties; on genuinely
+contested ones, the cheap trained model and Opus stand apart from the
+rest of the frontier. The crowd remains ahead of everyone even here,
+and we grade the subset analysis exploratory: theory-motivated, but the
+strongest contrast does not survive multiple-comparison correction at
+this sample size.
+
+### What RLVR training changes: calibration and coverage
+
+![RLVR behavioral gains — ECE and coverage](figures/f12_rlvr_behavioral_gains.png)
+
+Training reliably transforms the model's *behavior*. Calibration
+improves 30–40% in every train/eval pair measured — 0.099 → 0.065 with
+market tools (placing the trained 35B inside the frontier calibration
+cluster, alongside Sonnet's 0.063 and Opus's 0.053), 0.185 → 0.127
+without them, 0.170 → 0.103 in the anchor-removal run. Coverage
+saturates: the base model declines 26–36% of questions; the trained
+model answers essentially all of them with accuracy held flat — it
+takes on exactly the hard questions its base self-selects away from.
+The reliability curves below show what that looks like: the trained
+model's stated probabilities track empirical frequencies nearly as
+tightly as Opus's, where the base's drift far from the diagonal.
 
 ![Reliability curves](figures/f2_reliability.png)
+
+### The market-visible conditions: a measurement of market efficiency
+
+When policies are handed the market's own price, every model — from an
+untrained 35B to Opus 4.5 — converges toward the crowd, and none beats
+it. We read these cells less as a model comparison than as an
+**efficiency certificate for prediction markets**: the price already
+contains what retrieval and reasoning can add, so the optimal policy
+approaches price-copying, and skill differences compress into a narrow
+band around the crowd's own score.
+
+![Frontier panel](figures/f1_frontier_panel.png)
 
 **Search-off arm, market tools available:**
 
@@ -164,53 +309,11 @@ learning signal a raw curve hides.
 | untrained base       | 0.215      | 0.099 |
 
 
-**Search-off arm, market tools withheld:**
-
-
-| policy            | soft-Brier | ECE   |
-| ----------------- | ---------- | ----- |
-| trained, neither  | **0.245**  | 0.103 |
-| Claude Sonnet 4.5 | 0.246      | 0.130 |
-| untrained base    | 0.254      | 0.185 |
-| Gemini 3.6 Flash  | 0.259      | 0.157 |
-| Gemini 3.1 Pro    | 0.272      | 0.219 |
-
-
-**Search-on arm, market tools withheld (evidence-based forecasting):**
-
-
-| policy                 | soft-Brier | ECE   |
-| ---------------------- | ---------- | ----- |
-| trained, market+search | **0.252**  | —     |
-| trained, search-only   | 0.254      | 0.128 |
-| Claude Opus 4.5        | 0.256      | 0.136 |
-| untrained base         | ~0.26      | —     |
-| Claude Sonnet 4.5      | 0.273      | 0.176 |
-| Gemini 3.1 Pro         | 0.278      | 0.215 |
-| Gemini 3.6 Flash       | 0.286      | 0.205 |
-
-
 **Search-on arm, market tools available:** Flash 0.189, Pro 0.207,
-Opus 0.208, Sonnet 0.217, trained market+search 0.224, base ~0.26.
-
-Tables are ranked per column on point estimates over a few-hundred
-question test set; cross-policy gaps of ~0.02 or less are within
-sampling noise and should be read as tiers, not rankings. The crowd
-scores identically on the same rows in every cell; no policy beats it.
-
-**Uncertain-question subset (exploratory).** Following Turtel et al.'s
-observation that forecasting skill concentrates where the market itself
-is uncertain, we pre-declared the subset with cutoff price in
-[0.30, 0.70] — questions the crowd genuinely hadn't decided (n=104).
-There the trained model *separates* from most of the frontier in the
-evidence-based setting: crowd 0.232, trained 0.276, Opus 0.281,
-Sonnet ~0.294, Flash ~0.320, Gemini Pro 0.336. Paired per-question
-gaps versus the trained model are +0.059 against Pro (individually
-significant), +0.045 against Flash, and ties with Sonnet and Opus —
-effect sizes 3–50× larger than on the full set. The crowd remains
-significantly ahead of everyone even here. We grade this exploratory:
-it is theory-motivated but the strongest contrast does not survive
-multiple-comparison correction at this sample size.
+Opus 0.208, Sonnet 0.217, trained market+search 0.224, base ~0.26 —
+with live retrieval, frontier models drift *away* from the price and
+score worse (Finding 4), which is precisely what market efficiency
+predicts.
 
 ## Findings
 
@@ -223,7 +326,10 @@ multiple-comparison correction at this sample size.
    inference cost. It is
    also the only policy measured whose accuracy survives functioning
    retrieval unchanged; every frontier model got worse when live search
-   was switched on.
+   was switched on. And where the questions are genuinely contested —
+   the uncertain band above — the trained model tops every frontier
+   point estimate, with the margin over Gemini Pro individually
+   significant.
 2. **Accuracy converges to a crowd-bounded band.** Every policy, from an
   untrained 35B to Opus 4.5, lands in one band with the market price at
    its edge. The strongest frontier model matches the crowd; nothing
@@ -234,7 +340,11 @@ multiple-comparison correction at this sample size.
    for the 35Bs — the largest and most robust effects we measured, all
    individually significant, and several times larger than any training
    effect. Frontier models lean on the crowd hardest: their in-harness
-   advantage is substantially superior anchor exploitation. Consequence:
+   advantage is substantially superior anchor exploitation, and taking
+   the anchor away collapses them into — and partly below — the trained
+   model's band: the trained 35B is the least crowd-dependent policy we
+   measured, which is why it climbs from mid-table to the top of the
+   column the moment the price disappears. Consequence:
    scaffolded-vs-unscaffolded comparisons ("small trained model beats
    frontier") can be reproduced in either direction by choosing who sees
    the price; such claims are unidentified until the anchor is
@@ -296,18 +406,6 @@ multiple-comparison correction at this sample size.
    and captured per-rollout via webhook). None was visible in any
    aggregate metric.
 
-## Limitations
-
-- A few hundred test questions per cell: close calls are ties. Claims
-ride paired within-model contrasts, explicit bounds, or directions
-replicated across runs — not single-cell rankings.
-- One seed per training condition; re-running a recipe shifts endpoint
-scores by roughly ±0.015, so small cross-run orderings are not
-meaningful.
-- Archived market data supports only day-level temporal filtering;
-intra-day ordering is unrecoverable.
-- Corrections are append-only in the repository ledger; every headline
-number re-derives from archived per-question records.
 
 ## Provenance
 

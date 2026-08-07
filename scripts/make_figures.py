@@ -154,10 +154,12 @@ panel = [
     ("Sonnet 4.5", sonnet, C_FRONTIER),
     ("Gemini 3.6 Flash", flash, C_FRONTIER),
     ("Gemini 3.1 Pro", pro, C_FRONTIER),
-    ("trained 35B (v2)", trained_v2, C_TRAINED),
+    ("trained 35B (market-only)", trained_v2, C_TRAINED),
     ("base 35B", base_v2, C_BASE),
 ]
 fig, (a1, a2) = plt.subplots(1, 2, figsize=(9.5, 3.8))
+fig.suptitle("Search-off arm · market tools available (n=265)",
+             fontsize=10, y=1.02, style="italic")
 names = [n for n, *_ in panel]
 xs = range(len(panel))
 bs = [brier_ci(r) for _, r, _ in panel]
@@ -184,7 +186,7 @@ for ax in (a1, a2):
     ax.set_xticklabels(names, rotation=28, ha="right", fontsize=8)
     style(ax)
 plt.tight_layout()
-plt.savefig(f"{FIG}/f1_frontier_panel.png", dpi=180)
+plt.savefig(f"{FIG}/f1_frontier_panel.png", dpi=180, bbox_inches="tight")
 plt.close()
 
 # ---------------------------------------------------- F2: reliability curves
@@ -199,7 +201,7 @@ for name, rows, color, ls in [
     ax.plot(xs_, ys_, "-o", ms=3.5, color=color, ls=ls, label=name, lw=1.6)
 ax.set_xlabel("stated probability (bin mean)")
 ax.set_ylabel("empirical frequency of YES")
-ax.set_title("Reliability: what training moves", fontsize=10)
+ax.set_title("Reliability: what training moves\n(search-off arm, market tools available, n=265)", fontsize=10)
 ax.legend(frameon=False, fontsize=8, loc="upper left")
 style(ax)
 plt.tight_layout()
@@ -232,7 +234,7 @@ ax.set_ylabel("soft-Brier")
 ax.set_ylim(0.14, 0.33)
 ax.set_title(
     "Anchor-worth: frontier models lean on the crowd more than 35Bs\n"
-    "(paired within-model, all p<0.001)", fontsize=10)
+    "(paired within-model, search-off arm, all p<0.001)", fontsize=10)
 ax.legend(frameon=False, fontsize=8)
 style(ax)
 plt.tight_layout()
@@ -245,16 +247,16 @@ d1 = [abs(p - c) for p, _, c, sub, _ in v1_trained if sub]
 d2 = [abs(p - c) for p, _, c, sub, _ in trained_v2 if sub]
 bins = [x * 0.01 for x in range(0, 31)]
 ax.hist(d1, bins=bins, density=True, alpha=0.55, color="#c44e52",
-        label="v1 policy (cliff penalty at 0.02)")
+        label="pilot policy (cliff penalty at 0.02)")
 ax.hist(d2, bins=bins, density=True, alpha=0.55, color=C_TRAINED,
-        label="v2 policy (ramp penalty to 0.08)")
+        label="market-only policy (ramp penalty to 0.08)")
 ax.axvline(0.02, color="#c44e52", ls="--", lw=1.4)
 ax.axvline(0.08, color=C_TRAINED, ls="--", lw=1.4)
-ax.annotate("v1 penalty edge", (0.021, ax.get_ylim()[1] * 0.92), fontsize=8, color="#c44e52")
-ax.annotate("v2 penalty edge", (0.081, ax.get_ylim()[1] * 0.82), fontsize=8, color=C_TRAINED)
+ax.annotate("cliff penalty edge", (0.021, ax.get_ylim()[1] * 0.92), fontsize=8, color="#c44e52")
+ax.annotate("ramp penalty edge", (0.081, ax.get_ylim()[1] * 0.82), fontsize=8, color=C_TRAINED)
 ax.set_xlabel("|prediction − market price|")
 ax.set_ylabel("density")
-ax.set_title("Boundary relocation: the policy camps at whatever edge the reward draws",
+ax.set_title("Boundary relocation: the policy camps at whatever edge the reward draws\n(market tools available, held-out eval)",
              fontsize=10)
 ax.legend(frameon=False, fontsize=8.5)
 style(ax)
@@ -270,13 +272,13 @@ bins = [x * 0.05 for x in range(0, 21)]
 ax.hist(pb, bins=bins, density=True, alpha=0.5, color=C_BASE,
         label="base (submit 74%)")
 ax.hist(pt, bins=bins, density=True, alpha=0.6, color=C_TRAINED,
-        label="trained v3 (submit 98%)")
+        label="trained, neither-condition (submit 98%)")
 base_rate = sum(y for _, y, *_ in base_v3) / len(base_v3)
 ax.axvline(base_rate, color="#c44e52", lw=2,
            label=f"dataset YES base rate ({base_rate:.3f})")
 ax.set_xlabel("predicted probability (no market tools anywhere)")
 ax.set_ylabel("density")
-ax.set_title("Base-rate herding: remove the crowd and RL finds the next anchor\n"
+ax.set_title("Base-rate herding: remove the crowd and RL finds the next anchor\n(neither condition: market hidden, search off)\n"
              "(trained median 0.35; extremes 10%→2%; pre-registered)", fontsize=10)
 ax.legend(frameon=False, fontsize=8.5)
 style(ax)
@@ -288,3 +290,50 @@ print("figures written:")
 import os
 for f in sorted(os.listdir(FIG)):
     print(" ", f)
+
+# ------------------------- F: difficulty-adjusted training curve (market-only)
+# Webhook train rows in arrival order ~ step order; 33 equal chronological
+# blocks stand in for the 33 steps (capture is lossy but unbiased in time).
+_train = []
+with gzip.open(f"{R}/v2_run_webhook.jsonl.gz", "rt") as f:
+    for l in f:
+        if "market_id" not in l:
+            continue
+        try:
+            r = json.loads(l)
+        except json.JSONDecodeError:
+            continue
+        if str(r.get("market_id")) in ids4:
+            continue
+        y, c, rew = r.get("outcome"), r.get("price_at_cutoff"), r.get("reward")
+        if y is None or c is None or rew is None:
+            continue
+        _train.append((float(rew), (float(c) - float(y)) ** 2))
+S = 33
+diffs = []
+for i in range(S):
+    blk = _train[i * len(_train) // S : (i + 1) * len(_train) // S]
+    if not blk:
+        continue
+    pol = sum(r for r, _ in blk) / len(blk)
+    crowd_att = 1 - sum(cb_ for _, cb_ in blk) / len(blk)
+    diffs.append(pol - crowd_att)
+n = len(diffs)
+xbar = (n - 1) / 2
+sl = sum((i - xbar) * d for i, d in enumerate(diffs)) / sum((i - xbar) ** 2 for i in range(n))
+ic = sum(diffs) / n - sl * xbar
+fig, ax = plt.subplots(figsize=(7.6, 3.8))
+ax.axhline(0, color="#999", lw=1.4, ls="--", label="crowd-level performance")
+ax.plot(range(n), diffs, "-o", ms=3.5, lw=1.6, color=C_TRAINED,
+        label="policy reward above/below what crowd-copying would earn")
+ax.plot([0, n - 1], [ic, ic + sl * (n - 1)], ":", lw=2, color=C_TRAINED,
+        label=f"trend: +{sl:.4f}/step — the gap to the crowd closes")
+ax.set_xlabel("training step (single epoch, every question seen once)")
+ax.set_ylabel("reward vs crowd-attainable")
+ax.set_title("Learning, once batch difficulty is removed: the policy closes\n"
+             "its gap to the crowd across training (market-only run)", fontsize=10)
+ax.legend(frameon=False, fontsize=8, loc="lower right")
+style(ax)
+plt.tight_layout()
+plt.savefig(f"{FIG}/v2_reward_difficulty_adjusted.png", dpi=180)
+plt.close()
