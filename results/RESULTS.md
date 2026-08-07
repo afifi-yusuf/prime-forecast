@@ -71,9 +71,11 @@ retrieval in the loop.
 12. **Search degrades frontier forecasters** (8-cell campaign): 7 of 8
     frontier search-worth cells negative-value (+0.006 to +0.027); the
     sole exception (Flash market-on, −0.007) kept the tightest crowd
-    anchor measured. Mechanism: retrieved news is stale relative to an
-    efficient price; informed deviation loses (Sonnet P&L +$0.010 →
-    −$0.018/bet).
+    anchor measured. Paired stats: individually significant
+    for Sonnet (+0.025, t=2.4) and Opus (+0.022, t=2.4) market-on;
+    12/13 contrasts same direction (sign test p≈0.002). Mechanism:
+    retrieved news is stale relative to an efficient price; informed
+    deviation loses (Sonnet P&L +$0.010 → −$0.018/bet).
 13. **Search never pays, trained or frontier** (v5 completes the 2×2;
     pre-registered 2/6): thirteen search contrasts, one improvement,
     twelve harms/nulls. v5 (market+search, pure Brier) neither camped
