@@ -130,6 +130,7 @@ async def forecast_reward(state: vf.State, info) -> float:
             "submitted": False,
             "reward": NO_SUBMIT_REWARD,
             "brier": None,
+            "market_tools": bool(state.get("market_tools", False)),
             "research_tool_calls": int(state.get("research_tool_calls", 0)),
             "web_search_calls": int(state.get("web_search_calls", 0)),
         })
@@ -164,6 +165,7 @@ async def forecast_reward(state: vf.State, info) -> float:
         "submitted": bool(state.get("submitted")),
         "reward": r,
         "brier": (p - y) ** 2,
+        "market_tools": bool(state.get("market_tools", False)),
         "research_tool_calls": int(state.get("research_tool_calls", 0)),
         "web_search_calls": int(state.get("web_search_calls", 0)),
     })
@@ -288,6 +290,9 @@ class ForecastEnv(vf.StatefulToolEnv):
         state["web_search_calls"] = 0
         state["crowd_copy_penalty"] = self.crowd_copy_penalty
         state["crowd_copy_eps"] = self.crowd_copy_eps
+        # Stamped into webhook rows so dual-condition eval envs are
+        # separable post-hoc (v5's 2x2 eval rows were unlabeled).
+        state["market_tools"] = self.include_market_tools
         await super().setup_state(state)
         return state
 

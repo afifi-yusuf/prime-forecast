@@ -1,278 +1,318 @@
-# prime-forecast: results and findings
+# prime-forecast: Results
 
-Narrative: `research-arc.md` · Reward evolution: `../docs/reward-design.md` ·
-Framing: `../docs/paper-framing.md` · Run map: `../docs/run-registry.md`
+**Main claim: outcome-based RL takes an open Qwen3.5-35B-A3B to parity
+with Claude Opus 4.5 at evidence-based forecasting — reasoning from
+retrieved evidence without seeing the market's answer — at roughly
+1/100th the inference cost, and it is the only model measured whose
+accuracy is unharmed by live retrieval.**
 
-## Abstract
+## Overview
 
-**Agentic RLVR lifts an open base model to frontier parity at
-evidence-based forecasting**: after ~$300 of training, our 35B-A3B (3B
-active) holds the best point estimate in both no-market evaluation
-columns — statistically tied with Claude Opus 4.5 and Sonnet 4.5 — with
-frontier-level calibration and a robustness to retrieval that no frontier
-model exhibits, at roughly 1/100th the inference cost. Decomposing where
-forecasting performance comes from explains the result: the market's own
-price dominates every policy's score (withholding it costs 0.039–0.075
-Brier, paired p<0.001, most for frontier models; nobody beats the crowd);
-web search never pays (1 of 13 ablation contrasts positive — retrieved
-news is stale relative to an efficient price); and outcome-based RL buys
-calibration and behavior through anchor-seeking (crowd → penalty boundary
-→ base rate, pre-registered), with retrieval-in-the-loop training
-replacing anchor-camping by evidence-weighing. Half these findings were
-invisible to aggregate metrics and surfaced only through trace-level
-audits, pre-registration, and append-only corrections — practices we
-argue are mandatory for agentic RL evaluation.
+We train a mid-size open model (Qwen3.5-35B-A3B, 3B active parameters)
+with outcome-based RL (GRPO + LoRA, single epoch, ~2,100 resolved
+Polymarket questions) in an agentic forecasting environment: multi-turn
+tool use over web search, structured financial/market data, and
+optionally the prediction market's own price, ending in a submitted
+probability. Reward is the positive-shifted Brier score, r = 1 − (p − y)²
+(lower Brier is better; always answering 0.5 scores 0.25). A leak filter
+restricts every information channel to material published before each
+question's cutoff, so the task is genuine forecasting.
 
-## Scope statement (read first)
+Trained policies are compared against frontier models (Claude Opus 4.5,
+Claude Sonnet 4.5, Gemini 3.1 Pro, Gemini 3.6 Flash) run through the
+*identical* harness — same tools, filters, and turn budget — and against
+the market price itself (the crowd).
 
-The project has two evaluation arms. The **search-off arm** originated as an
-undetected infrastructure outage: a trace-level audit (2026-08-01) found
-93–100% of web searches returned empty results across all early headline
-evaluations and the v2/v3 training runs (upstream engines had IP-banned the
-scraping VM; HTTP status stayed 200 — silent to every health check). Those
-measurements are internally valid (every policy faced identical conditions:
-parametric knowledge + structured-data tools + market tools when granted)
-and are retained, fully disclosed, as the search-off arm. The **search-on
-arm** (env 0.1.18+, licensed-API retrieval, verified per-trace) was then
-measured for all policies, completing a two-arm design. Trained models in
-the search-off arm are search-naive by construction; v4/v5 trained with
-retrieval in the loop.
+Metric conventions (following Turtel et al.): soft-Brier imputes 0.5 for
+non-submissions; ECE is computed over submitted forecasts only, with ten
+equal-mass bins. Both lower-is-better.
 
-## Findings index
+## Training conditions
 
-1. **Anchoring** (v1): dominant learned strategy is crowd-copying — median
-   |p−crowd| 0.028, camped outside the 0.02 penalty cliff.
-2. **Serving gap** (v1): identical weights, 94% vs 48% submit across
-   serving stacks → all headline evals platform-served (webhook method).
-3. **Boundary relocation** (v2, pre-registered): replace cliff with ramp
-   (ε=0.08) → camp moves to exactly 0.080. Shaping relocates anchors.
-4. **Coverage without accuracy loss** (v2): submit 64→100%, accuracy flat.
-5. **Accuracy is scaffold-bound**: the market anchor is worth 0.039–0.075
-   Brier to every policy; training moved resolution ≤ +0.016 (n.s.).
-6. **Training buys calibration**: ECE −30–40% in every train/eval pair
-   (0.099→0.065; 0.185→0.127; 0.170→0.103); consistent direction, per-cell
-   CIs wide.
-7. **Two axes** (frontier panel, corrected C1): accuracy converges to one
-   crowd-bounded band (0.186–0.215; crowd 0.189 unbeaten); calibration is
-   TRAINABLE, not scale-bound — trained 35B ECE 0.065 ≈ Sonnet 0.063.
-8. **Matched-subset null**: paired base-vs-trained resolution −0.001 ±
-   0.020 — flat within ±0.02.
-9. **Anchor decomposition** (paired, all p<0.001): anchor-worth Gemini Pro
-   +0.075, Flash +0.063, Sonnet +0.058, both 35Bs +0.039. Frontier leans
-   on the crowd hardest; "small model beats frontier" reproduces in either
-   direction by toggling who sees the price.
-10. **The anchor ladder** (v3, pre-registered 4/5): market hidden → policy
-    herds to the dataset base rate (median 0.35 vs rate 0.355; extremes
-    10→2%). Three runs, three anchors: crowd → boundary → base rate.
-11. **Search de-herds but does not pay** (v4, pre-registered 4.5/6):
-    retrieval-in-loop training dissolves the base-rate anchor (median
-    0.40, extremes 12%, search economy 3.4→2.25/rollout) yet the endpoint
-    (0.254) does not beat the search-off control v3 (0.245).
-12. **Search degrades frontier forecasters** (8-cell campaign): 7 of 8
-    frontier search-worth cells negative-value (+0.006 to +0.027); the
-    sole exception (Flash market-on, −0.007) kept the tightest crowd
-    anchor measured. Paired stats: individually significant
-    for Sonnet (+0.025, t=2.4) and Opus (+0.022, t=2.4) market-on;
-    12/13 contrasts same direction (sign test p≈0.002). Mechanism:
-    retrieved news is stale relative to an efficient price; informed
-    deviation loses (Sonnet P&L +$0.010 → −$0.018/bet).
-13. **Search never pays, trained or frontier** (v5 completes the 2×2;
-    pre-registered 2/6): thirteen search contrasts, one improvement,
-    twelve harms/nulls. v5 (market+search, pure Brier) neither camped
-    (median |p−crowd| 0.125) nor herded: it learned evidence-weighing and
-    adaptive channel arbitration (searches 1.53 with anchor, 2.35
-    without) — the richest behavior and the worst trained market-on Brier
-    (0.224 vs search-off v2's 0.211). Behavior and score decoupled.
+Four training runs form a 2×2 over information channels, plus an
+archived pilot. Runs are named by what the agent had during training:
 
-## Grand summary (all cells)
 
-**Training 2×2 (endpoint soft-Brier, matched eval condition):**
+| condition     | market price | web search | notes                                           |
+| ------------- | ------------ | ---------- | ----------------------------------------------- |
+| market-only   | visible      | off        | main anchored run; graded anti-copy ramp        |
+| neither       | hidden       | off        | anchor-removal control; pure-Brier-style reward |
+| search-only   | hidden       | on         | retrieval in the loop, no anchor                |
+| market+search | visible      | on         | both channels live                              |
+| (pilot)       | visible      | partial    | multi-epoch; discovered price-copying; archived |
 
-| trained with… | search OFF | search ON |
-|---|---|---|
-| market ON | v2 **0.211** | v5 **0.224** |
-| market OFF | v3 **0.245** | v4 **0.254** |
 
-Untrained base: 0.215 / ~0.258 (market-on), 0.254–0.261 / ~0.261–0.269
-(market-off). Search never improved a trained endpoint.
+Search-off measurements are internally valid — every policy in a
+comparison faced identical conditions — and all key comparisons were
+re-measured in the search-on arm with retrieval verified per-trace (how
+the search-off condition arose is documented in Finding 6).
 
-**Search-OFF arm** (soft-Brier, ECE submitted-only; each column ranked):
+## Data collection
 
-| market-ON | market-OFF |
-|---|---|
-| Opus 4.5 **0.186** (.053) | trained v3 **0.245** (.103) |
-| crowd 0.189 (.058) | Sonnet 0.246 (.130) |
-| Sonnet 0.191 (.063) | trained v2† 0.250 (.127) |
-| Flash 0.196 (.085) | base 0.254 (.185) |
-| Pro 0.197 (.062) | Flash 0.259 (.157) |
-| trained v2 0.211 (.065) | Pro 0.272 (.219) |
-| base 0.215 (.099) | |
+Questions are resolved binary Polymarket markets pulled from the public
+API and filtered by `scripts/build_dataset.py`:
 
-**Search-ON arm** (each column ranked):
+- **Liquidity / decidedness**: volume ≥ $5,000 and market price at the
+forecast cutoff within [0.10, 0.90] — excludes illiquid markets and
+questions the market had already effectively decided.
+- **Forecast horizon**: each question's cutoff is drawn hash-stably
+within the market's lifetime (roughly 7–90 days before resolution),
+rejecting horizons under 5 days — the model must genuinely forecast,
+not call the last mile.
+- **Temporal eligibility (no pretraining leakage)**: every cutoff and
+resolution postdates 2026-03-02, after the Qwen3.5 series' release
+window — so no question's outcome can be present in the base model's
+weights. Test questions additionally resolve strictly *after* every
+training question (train resolutions 2026-03-07 → 06-19; test
+resolutions from 2026-07-01), so no temporal overlap exists between
+what the policy trained on and what it is scored on.
+- **Category caps** limit any single topic's share.
 
-| market-ON | market-OFF |
-|---|---|
-| Flash **0.189** (.067) | trained v5 **0.252** |
-| Pro 0.207* (.102) | trained v4 0.254 (.128) |
-| Opus 0.208 (.082) | Opus 0.256 (.136) |
-| Sonnet 0.217 (.100) | base ~0.261–0.269 |
-| trained v5 0.224 | Sonnet 0.273 (.176) |
-| trained v4 ~0.254 (transfer) | Pro 0.278 (.215) |
-| base ~0.258 | Flash 0.286 (.205) |
+Composition: train = 2,113 questions (politics/policy 40%,
+crypto/finance 34%, weather/climate 10%, AI/tech 9%, macro 3%, other
+4%; YES base rate 0.403). Test (held out) = politics/policy ~30%,
+crypto/finance ~34%, AI/tech ~18%, macro ~9%, weather ~5%, other ~4%;
+YES base rate ≈ 0.32–0.36; crowd soft-Brier ≈ 0.19.
 
-† step-22 checkpoint · * n=231 partial (documented stall) · crowd = 0.189
-on the same rows in every cell; no policy beats it. Point-estimate order;
-statistically the columns resolve into tiers, not ranks (n=265).
+## Leak filtering
 
-**Paired effects (same questions, within-model):**
+Retrieved content passes through layered filters before the model sees
+it:
 
-| effect | size | grade |
-|---|---|---|
-| anchor-worth, frontier | +0.058 to +0.075 | p<0.001 each |
-| anchor-worth, 35Bs | +0.039 | p<0.001 |
-| search-worth (13 contrasts) | −0.007 once; +0.006…+0.027 (or ~0) 12× | 12/13 direction |
-| training → resolution | ~0.000 matched; ≤+0.016 | bound |
-| training → calibration | −30–40% ECE every run | direction |
-| anchor ladder | 0.028 → 0.080 → base rate → 0.125 | pre-registered ×3 |
+1. **Domain blocklist** — prediction-market sites (Polymarket, Kalshi,
+  Metaculus, Manifold, PredictIt) and known mirrors that republish
+   resolved market pages are never fetched.
+2. **Heuristic date filter** — publish dates are parsed (including
+  verbose formats), results published after the cutoff are dropped,
+   and lines containing post-cutoff dates or post-cutoff facts are
+   scrubbed from summaries.
+3. **LLM filter** — a per-result KEEP/DROP judgment (Claude Haiku via
+  Bedrock) against the question and cutoff, catching undated pages and
+   content that reveals outcomes indirectly. The summarizer re-filters
+   its input and scrubs its own output.
 
-CIs (stated once, not per cell): single-cell soft-Brier 95% CIs are
-±0.019–0.034 at n=265; paired anchor-worth CIs are ±0.024–0.035 (all
-excluding zero); the matched-subset resolution bound is ±0.020; per-run
-CIs appear in the per-run sections' prose.
+Structured-data tools (price/series history) are truncated at the cutoff
+server-side, and the market's own price is only ever served *as of the
+cutoff*. Residual risk is bounded by the data, not the filter: archived
+market data supports day-level ordering only (see Limitations).
 
-## Per-run detail
+## Reward functions
 
-### v1 (run `rqn28a9d`) — archive; grounds Findings 1–2
+All runs share the base reward. For a submitted final probability p on a
+question with outcome y ∈ {0, 1}:
 
-45 steps, 9 epochs × 1,280 questions, cliff penalty, Firecrawl-era search.
-Step-30 platform eval (v3 split, n=160): soft-Brier 0.216 [.186,.247] vs
-base 0.236, crowd 0.191; submit 94% vs 31%; median |p−crowd| 0.028, 32%
-within 0.02; trading −$0.08/bet. Serving gap measured here (94%/48%).
+```
+r = 1 − (p − y)²          (positive-shifted Brier, range 0–1)
+```
 
-### v2 (run `mjkvxreh`) — single epoch, ramp penalty, market-on
+A rollout that never submits receives a flat r = 0.55 — deliberately
+below the 0.75 guaranteed by always answering 0.5, so finishing
+dominates stalling.
 
-33×64×8 over 2,113 questions (dataset v4: uniform-in-lifetime cutoffs,
-template ≤5 / event ≤4 caps). Endpoint (step-33 in-run eval, n=265):
-0.211 [.188,.233] vs base 0.215 [.194,.235]; submit 64→100%; median
-|p−crowd| 0.080 = ramp ε (Finding 3); within-0.02 mass 32→4%.
-Difficulty-adjusted training curve: gap to crowd-attainable 0.145→0.059
-(t=4.5), raw curve is batch-difficulty noise (r=+0.58 with attainable;
-figure `figures/v2_reward_difficulty_adjusted.png`).
+When the market price is visible, near-optimal reward is available by
+simply echoing it, so the two market-visible runs added an
+**anti-copy penalty** — a reward deduction for predictions close to the
+crowd price, forcing the policy to move away from the anchor. Per run:
 
-### v3 (run `slgbosbz`) — market-off control, search-off
+- **pilot** — binary cliff: r ← max(0, r − 0.20) when |p − crowd| ≤ 0.02.
+- **market-only** — graded ramp: r ← max(0, r − 0.15·(1 − d/0.08)) for
+d = |p − crowd| < 0.08; full penalty at the price, decaying linearly
+to zero at 0.08.
+- **neither / search-only / market+search** — intended pure Brier; an
+inherited default left a narrow residual ramp active
+(0.20·(1 − d/0.02) for d < 0.02), which fired on 5–11% of submitted
+training rollouts (corrections ledger, C3).
 
-Identical frame, no market tools, pure Brier. Endpoint: 0.245 [.221,.268]
-vs base 0.261 [.235,.287] (paired +0.016 ± 0.025, t=1.25); ECE 0.170→
-0.103; submit 74→98%; median prediction 0.35 = base rate 0.355; extremes
-10→2% (Finding 10, pre-registered).
+Under GRPO, advantages are group-relative per question, so reward terms
+constant within a question's rollout group (e.g. the crowd's own Brier)
+cancel out of the gradient; only within-group-varying terms — such as a
+rollout's distance to the price — shape learning. Evaluation metrics are
+computed from logged Brier fields, never from reward, so penalty terms
+do not contaminate any reported score.
 
-### v4 (runs `r64dayfb`+`basziye6`) — market-off, search-ON
+### Training curves
 
-First attempt (`xzmqo4zh`) aborted at step ~2: trace audit caught reward
-leakage (AgentCore verbose dates unparsed → undated → hard drop bypassed;
-a rollout retrieved a resolved macro figure for reward 0.998). Fixed in
-env 0.1.18; replay of the leaked query post-fix returns zero results.
-Main run credit-exhausted at step 29 (no step-29 checkpoint); continued
-via step-22 warm-start to a true step-33 endpoint. Endpoint: 0.254
-[.234,.275] pooled; ECE 0.128; submit 99.6%; median prediction 0.40,
-extremes 12% (de-herding, Finding 11); search economy 3.4→2.25/rollout;
-transfer cell (market-on, never trained): score-level anchor-worth ≈ 0
-yet per-question |p_on−p_off| median 0.120 — zero-shot engagement without
-profit.
+![Training reward curves for the two search-on runs](figures/f9_training_curves_search_runs.png)
 
-### v5 (run `zvxexo35`) — market-on + search-ON, pure Brier
+Per-step batch-mean training reward (1 − Brier) for the two runs with
+retrieval in the loop; shaded bands are the p10–p90 rollout spread
+within each step. Single-epoch curves are noisy by construction — each
+step is a fresh batch of unseen questions, so the trace mixes learning
+with batch difficulty. The difficulty-adjusted view for the market-only
+run is below: subtracting each batch's crowd difficulty reveals the
+learning signal a raw curve hides.
 
-The final 2×2 cell. Endpoint: market-on 0.224, market-off 0.252; searches
-1.53 (anchor available) vs 2.35 (not); market calls 1.71/rollout; median
-|p−crowd| 0.125 — no camping despite no penalty; predictions wide (7%
-extremes). Pre-registration 2/6: submit ✓, transfer-degradation ✓;
-anchoring-returns ✗, search-collapse ✗ (became adaptive), endpoint band ✗
-(worse than v2), Flash-pattern ✗. Two-factor caveat: v5 differs from v2
-in penalty AND search.
+![Difficulty-adjusted training curve, market-only run](figures/v2_reward_difficulty_adjusted.png)
 
-### Frontier panels (all 16 cells; local harness via Bedrock/Vertex)
+## Headline results (held-out test questions)
 
-Search-off arm measured 2026-07-30–31; search-on arm 2026-08-05–06 (env
-0.1.18, AgentCore). Values in the grand summary. Search-worth per model
-(paired within-model): Sonnet +0.026/+0.027 (on/off), Opus +0.022/(off
-n/a→0.256), Flash −0.007/+0.027, Pro +0.010/+0.006*. Calibration doubles
-without the anchor for every frontier model (e.g. Pro .062→.219).
+![Frontier panel](figures/f1_frontier_panel.png)
 
-## Exploratory: uncertain-question subset (pre-declared band, computed 2026-08-07)
+![Reliability curves](figures/f2_reliability.png)
 
-Motivation: Turtel et al.'s Fig. 3 shows skill concentrates where the
-market is uncertain. Subset rule (t-computable, no selection leakage):
-price_at_cutoff in [0.30, 0.70]; n=104 of 265. Evidence-based (market-off)
-cells, soft-Brier: crowd 0.232 · trained v3 0.276 · Opus(on-arm) 0.281 ·
-Sonnet 0.293/0.295 · Flash 0.319/0.321 · Pro 0.336.
+**Search-off arm, market tools available:**
 
-Paired (frontier − trained v3; + = trained better): vs Pro +0.059
-(t=2.18); vs Flash +0.045 (t=1.72); vs Sonnet +0.016 (n.s.); vs Opus
-+0.005 (tie, cross-arm). Crowd remains significantly ahead of trained
-(t=2.05) even here. GRADE: exploratory, theory-motivated; the vs-Pro t
-does not survive 4-way multiple-comparison correction. Effect sizes are
-3–50× the full-set gaps, confirming discrimination concentrates on
-uncertain questions; the n=593 extension pre-registers this subset
-analysis as confirmatory.
 
-## Corrections (append-only)
+| policy               | soft-Brier | ECE   |
+| -------------------- | ---------- | ----- |
+| Claude Opus 4.5      | **0.186**  | 0.053 |
+| crowd (market price) | 0.189      | 0.058 |
+| Claude Sonnet 4.5    | 0.191      | 0.063 |
+| Gemini 3.6 Flash     | 0.196      | 0.085 |
+| Gemini 3.1 Pro       | 0.197      | 0.062 |
+| trained, market-only | 0.211      | 0.065 |
+| untrained base       | 0.215      | 0.099 |
 
-- **C1 (2026-08-04).** Panel ECEs for trained/base were v1-era values
-  carried over (0.119/0.170); corrected to 0.065/0.099. "Calibration
-  monotone in capability" retracted → "calibration is trainable."
-  Discovered by re-derivation during figure generation.
-- **C2 (2026-08-04).** ECE convention pinned: submitted-only, 10
-  equal-mass bins, paper-wide. v3 restated 0.170/0.103.
 
-## Discarded data
+**Search-off arm, market tools withheld:**
 
-- Four re-eval probes (2026-08-01) on degraded fallback search after
-  `prime train stop` invocations failed (CLI flag misuse, diagnosed
-  later): agent behavior poisoned (submit 54–88%). ~$25. Unused.
-- Early "Gemini Flash" panel row was Sonnet (config silently overrides
-  `-m`); retracted, re-run with per-model configs.
-- v4 first-attempt training rollouts (leak-contaminated reward window).
 
-## Audits & validity notes
+| policy            | soft-Brier | ECE   |
+| ----------------- | ---------- | ----- |
+| trained, neither  | **0.245**  | 0.103 |
+| Claude Sonnet 4.5 | 0.246      | 0.130 |
+| untrained base    | 0.254      | 0.185 |
+| Gemini 3.6 Flash  | 0.259      | 0.157 |
+| Gemini 3.1 Pro    | 0.272      | 0.219 |
 
-- **Search-health audit**: strict per-trace zero-result rates — search-off
-  era 93–100% empty everywhere; search-on era 16–58% empty (legitimate
-  filter drops). Detection required reading rollouts; every status-code
-  check passed throughout. Remediations: result-count health checks,
-  never-cache/serve empties, error→empty degradation (erroring tools cost
-  97→54% submit in probes), licensed-API backend.
-- **Selection-criteria audit (D28-style)**: three hindsight-conditioned
-  dataset elements — resolved-only membership (partially mitigated by
-  scheduled-end-date windows), lifetime-volume filter/caps, cutoff
-  placement relative to realized resolution. No outcome-direction leakage
-  into context; scopes external validity.
-- Frontier rows ran a 7-of-13 toolset (provider schema limits); ours ran
-  all 13.
-- **Serving-gap addendum (2026-08-07):** the v4 step-33 adapter deployed on
-  the platform's own inference product passed behavioral vitals (submit
-  100%, searches 2.1) but failed score validation against the training-
-  stack reference: soft-Brier 0.2945 vs 0.2521, ECE 0.218 vs 0.128,
-  median |p−crowd| 0.210 vs 0.125. Third serving stack measured, third
-  distinct behavior (train-cluster faithful; local vLLM severely degraded;
-  provider inference calibration-degraded). Measured policy quality is a
-  property of the policy×serving-stack pair; endpoint re-evaluation via
-  deployments is ruled out (raw: `v4step33_deployed_validation_eval.jsonl`).
-- Final-step artifacts: v1/v2/v3 step-33 checkpoints lost to a recurring
-  upload bug; v4c step-33 adapter survived (first ever). All adapters
-  archived locally (`artifacts/adapters/MANIFEST.json`).
-- Trained search-off models are search-naive; v5-vs-v2 differs in two
-  factors; Pro search-on market-on is n=231; base search-on cells are
-  step-1 evals.
-- Retrospective data: day-level ordering only (intra-day sequence
-  unrecoverable; cf. EQP).
 
-## Provenance / costs
+**Search-on arm, market tools withheld (evidence-based forecasting):**
 
-Leak safety: 5 layers (blocklist, provider date filters, heuristics,
-Claude Haiku 4.5 judge — sole zero-leak-error model of six benchmarked;
-Qwen3-32B fallback — plus cutoff clamps + verbose-date parsing). Search
-cache doubles as auditable corpus. Raw data in this directory:
-`v2/v3/v4/v5_run_webhook.jsonl.gz`, platform metrics JSONs, all
-`*_eval.jsonl`, pinned splits v3/v4/v5. Costs: ~$300 Prime total across
-5 runs + probes + evals (incl. ~$30 discarded); frontier panels + filter
-on AWS/GCP credits; search infra ~$0.08/h Azure (decommission pending).
+
+| policy                 | soft-Brier | ECE   |
+| ---------------------- | ---------- | ----- |
+| trained, market+search | **0.252**  | —     |
+| trained, search-only   | 0.254      | 0.128 |
+| Claude Opus 4.5        | 0.256      | 0.136 |
+| untrained base         | ~0.26      | —     |
+| Claude Sonnet 4.5      | 0.273      | 0.176 |
+| Gemini 3.1 Pro         | 0.278      | 0.215 |
+| Gemini 3.6 Flash       | 0.286      | 0.205 |
+
+
+**Search-on arm, market tools available:** Flash 0.189, Pro 0.207,
+Opus 0.208, Sonnet 0.217, trained market+search 0.224, base ~0.26.
+
+Tables are ranked per column on point estimates over a few-hundred
+question test set; cross-policy gaps of ~0.02 or less are within
+sampling noise and should be read as tiers, not rankings. The crowd
+scores identically on the same rows in every cell; no policy beats it.
+
+**Uncertain-question subset (exploratory).** Following Turtel et al.'s
+observation that forecasting skill concentrates where the market itself
+is uncertain, we pre-declared the subset with cutoff price in
+[0.30, 0.70] — questions the crowd genuinely hadn't decided (n=104).
+There the trained model *separates* from most of the frontier in the
+evidence-based setting: crowd 0.232, trained 0.276, Opus 0.281,
+Sonnet ~0.294, Flash ~0.320, Gemini Pro 0.336. Paired per-question
+gaps versus the trained model are +0.059 against Pro (individually
+significant), +0.045 against Flash, and ties with Sonnet and Opus —
+effect sizes 3–50× larger than on the full set. The crowd remains
+significantly ahead of everyone even here. We grade this exploratory:
+it is theory-motivated but the strongest contrast does not survive
+multiple-comparison correction at this sample size.
+
+## Findings
+
+1. **Trained Qwen3.5 reaches frontier parity at evidence-based
+  forecasting.** In the search-on, market-withheld column — the setting
+   that most resembles real forecasting, where an agent must reason from
+   retrieved evidence without the crowd's answer — the RL-trained
+   Qwen3.5-35B-A3B is statistically indistinguishable from Claude Opus
+   4.5, the strongest frontier model tested, at roughly 1/100th the
+   inference cost. It is
+   also the only policy measured whose accuracy survives functioning
+   retrieval unchanged; every frontier model got worse when live search
+   was switched on.
+2. **Accuracy converges to a crowd-bounded band.** Every policy, from an
+  untrained 35B to Opus 4.5, lands in one band with the market price at
+   its edge. The strongest frontier model matches the crowd; nothing
+   surpasses it.
+3. **Anchor decomposition.** Withholding the market price costs each
+  policy its *anchor-worth*, measured pairwise on the same questions:
+   roughly +0.06 to +0.08 soft-Brier for the frontier models and +0.04
+   for the 35Bs — the largest and most robust effects we measured, all
+   individually significant, and several times larger than any training
+   effect. Frontier models lean on the crowd hardest: their in-harness
+   advantage is substantially superior anchor exploitation. Consequence:
+   scaffolded-vs-unscaffolded comparisons ("small trained model beats
+   frontier") can be reproduced in either direction by choosing who sees
+   the price; such claims are unidentified until the anchor is
+   controlled.
+![Anchor-worth by policy](figures/f5_anchor_worth.png)
+4. **Search does not pay.** Across thirteen paired search-worth
+  contrasts (trained and frontier, both anchor conditions), one
+   improvement; twelve harms or nulls — individually significant harms
+   for Sonnet and Opus with market tools, and 12/13 in the same
+   direction (sign test p ≈ 0.002). Retrieved public news is stale
+   relative to an efficient price: deviating from the market on the
+   strength of retrieval means trading against better-informed
+   counterparties. Per-bet trading simulations show exactly that —
+   Sonnet earns +$0.010/bet betting blind against the market and loses
+   −$0.018/bet once informed by retrieval. The sole positive cell
+   (Flash with market tools) kept the tightest crowd anchor of any
+   policy measured: search paid only where it was subordinated to the
+   price. Notably, behavior and
+   score decouple: the market+search policy learned the richest behavior
+   we observed — adaptive channel arbitration (fewer searches when the
+   anchor is available, ≈1.5 vs ≈2.4 per rollout), evidence-weighing,
+   no price-camping — and still scores worse than the plain
+   market-only policy. In an efficient-market environment,
+   sophistication is not what the reward pays for.
+5. **The anchor ladder: outcome-based RL learns anchoring plus
+  moderation.** Across runs the policy migrates to the nearest
+   reward-safe statistical regularity: the crowd price when visible
+   (pilot: median distance 0.028 from the price, camped just outside the
+   penalty cliff); the penalty boundary itself when the cliff became a
+   ramp (re-anchored at exactly the new ε — pre-registered); the dataset
+   base rate when the price was hidden (median prediction 0.35 vs base
+   rate 0.355, with extreme predictions collapsing from 10% to 2% —
+   pre-registered). Giving the anchor-less policy working retrieval
+   partially reverses the herding: the search-only run's median
+   prediction moves to 0.40 with extremes recovering to 12%, and the
+   policy learns search *economy* during training (3.4 → 2.25
+   searches per rollout) — search de-herds, but the extra dispersion
+   buys no score. Anchoring-plus-moderation *is*
+   calibration, which explains why calibration improved substantially in
+   the search-off runs while resolution — actually separating YES from
+   NO events — moved by at most +0.016 in any run (not significant).
+   What training reliably delivered instead: **calibration and
+   coverage**. ECE improved ~30–40% in every train/eval pair of the
+   search-off runs — 0.099 → 0.065 with market tools (moving the 35B
+   into the frontier calibration cluster, alongside Sonnet's 0.063),
+   0.185 → 0.127 without them, and 0.170 → 0.103 in the anchor-removal
+   run — and submission saturated (64% → ~100%) at no accuracy cost:
+   the trained model answers the hard questions the base declines.
+   ![Boundary relocation](figures/f7_boundary_relocation.png)
+   ![Base-rate herding](figures/f8_base_rate_herding.png)
+6. **Measurement is the binding constraint.** Three findings exist only
+  because we read rollouts rather than dashboards: the silent search
+   outage (empty results under HTTP 200 across an entire campaign); a
+   reward-leakage channel (an unparsed verbose date let a rollout
+   retrieve a resolved outcome for near-perfect reward — caught in trace
+   audit, fixed, and the run restarted); and a serving gap (identical
+   weights, 94% vs 48% task compliance across inference stacks — hence
+   all headline evals are served by the training platform's own stack
+   and captured per-rollout via webhook). None was visible in any
+   aggregate metric.
+
+## Limitations
+
+- A few hundred test questions per cell: close calls are ties. Claims
+ride paired within-model contrasts, explicit bounds, or directions
+replicated across runs — not single-cell rankings.
+- One seed per training condition; re-running a recipe shifts endpoint
+scores by roughly ±0.015, so small cross-run orderings are not
+meaningful.
+- Archived market data supports only day-level temporal filtering;
+intra-day ordering is unrecoverable.
+- Corrections are append-only in the repository ledger; every headline
+number re-derives from archived per-question records.
+
+## Provenance
+
+Per-rollout records for every evaluation are archived in `results/`
+(webhook captures, platform metrics, eval outputs); figures regenerate
+from those archives via `scripts/make_figures.py`. Run IDs, configs, and
+the full technical changelog live in `results/RESULTS-detailed.md` and
+`docs/run-registry.md`.

@@ -2,7 +2,7 @@
 name = "prime-forecast"
 description = "Agentic forecasting RLVR: multi-turn tool-use agent predicts resolved Polymarket questions, rewarded on Brier score"
 tags = ["multi-turn", "tools", "forecasting", "train", "eval"]
-version = "0.1.18"
+version = "0.1.20"
 requires-python = ">=3.11"
 dependencies = [
     "verifiers>=0.2.0",

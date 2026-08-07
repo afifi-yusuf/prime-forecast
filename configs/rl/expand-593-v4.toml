@@ -1,0 +1,45 @@
+# n=593 expansion: v4 continuation re-run (warm-start step-22 -> 33), full
+# test593 eval in-run, dual conditions. Env 0.1.19 (code == 0.1.18 + data).
+name = "expand593-v4"
+model = "Qwen/Qwen3.5-35B-A3B"
+checkpoint_id = "mo3l86ms9mt3b7fb8lzvcfpj"
+max_steps = 33
+batch_size = 64
+rollouts_per_example = 8
+env_file = ["../../secrets.env", "../../eval-searxng.env"]
+
+[sampling]
+max_tokens = 12288
+enable_thinking = true
+
+[[env]]
+id = "yafifi/prime-forecast"
+args = { split = "train", max_turns = 10, max_web_searches = 3, include_market_tools = false }
+
+[[pre_batch_filters]]
+type = "zero_advantage"
+enforce = true
+
+[eval]
+interval = 33
+skip_first_step = true
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+name = "test593-market-off"
+args = { split = "test593", eval_split = "test593", max_turns = 10, max_web_searches = 3, include_market_tools = false }
+num_examples = 593
+rollouts_per_example = 1
+
+[[eval.env]]
+id = "yafifi/prime-forecast"
+name = "test593-market-on"
+args = { split = "test593", eval_split = "test593", max_turns = 10, max_web_searches = 3, include_market_tools = true }
+num_examples = 593
+rollouts_per_example = 1
+
+[checkpoints]
+interval = 100
+
+[adapters]
+interval = 100
