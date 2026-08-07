@@ -248,6 +248,15 @@ analysis as confirmatory.
   into context; scopes external validity.
 - Frontier rows ran a 7-of-13 toolset (provider schema limits); ours ran
   all 13.
+- **Serving-gap addendum (2026-08-07):** the v4 step-33 adapter deployed on
+  the platform's own inference product passed behavioral vitals (submit
+  100%, searches 2.1) but failed score validation against the training-
+  stack reference: soft-Brier 0.2945 vs 0.2521, ECE 0.218 vs 0.128,
+  median |p−crowd| 0.210 vs 0.125. Third serving stack measured, third
+  distinct behavior (train-cluster faithful; local vLLM severely degraded;
+  provider inference calibration-degraded). Measured policy quality is a
+  property of the policy×serving-stack pair; endpoint re-evaluation via
+  deployments is ruled out (raw: `v4step33_deployed_validation_eval.jsonl`).
 - Final-step artifacts: v1/v2/v3 step-33 checkpoints lost to a recurring
   upload bug; v4c step-33 adapter survived (first ever). All adapters
   archived locally (`artifacts/adapters/MANIFEST.json`).
