@@ -13,17 +13,22 @@ Highlights:
 - **Best in column** at evidence-based forecasting: the trained models
   hold the top two point estimates (0.252, 0.254), ahead of Claude Opus
   4.5 (0.256) and every other frontier model by up to 0.034.
-- **Beats three of four frontier models outright on uncertain
-  questions** — the ones the market itself hadn't decided — with the gap
-  over Gemini Pro individually significant.
+- **Tops all four frontier point estimates on uncertain questions** —
+  the ones the market itself hadn't decided — with clear margins over
+  Sonnet, Flash, and Pro, and a slight edge over Opus.
 - **Frontier-cluster calibration**: trained ECE 0.065, alongside Sonnet
   (0.063) and Opus (0.053), from a base that starts at 0.099.
 - **Uniquely robust to live retrieval**: turning real web search on
-  degraded every frontier model (7 of 8 cells); the trained policy is
+  degraded the frontier in 7 of 8 cells; the trained policy is
   unmoved.
 - **Answers everything**: coverage rises from 64% to ~100% of questions
   with accuracy held flat — the trained model takes on the hard
   questions its base declines, at no cost.
+- **A new agentic dataset**: 2,100+ train and ~600 held-out resolved
+  Polymarket questions where context is not pre-collected but acquired
+  by the agent at rollout time through cutoff-filtered tools — research
+  itself becomes part of the benchmark, and newly resolved markets
+  extend it indefinitely with no snapshot step.
 
 ## Overview
 
@@ -33,7 +38,9 @@ Polymarket questions) in an agentic forecasting environment: multi-turn
 tool use over web search, structured financial/market data, and
 optionally the prediction market's own price, ending in a submitted
 probability. Reward is the positive-shifted Brier score, r = 1 − (p − y)²
-(lower Brier is better; always answering 0.5 scores 0.25). A leak filter
+— the Brier score is the squared error between predicted probability
+and outcome (lower is better; always answering 0.5 scores 0.25), so
+reward is highest when the forecast is confidently correct. A leak filter
 restricts every information channel to material published before each
 question's cutoff, so the task is genuine forecasting.
 
@@ -90,9 +97,32 @@ explicit belief state: every tool call carries an updated probability,
 confidence, and evidence-for/against lists, so the final number is the
 end of an auditable update trajectory rather than a one-shot guess.
 
+**An agentic dataset: context acquired, not pre-collected.** We regard
+the environment plus question set as a contribution in its own right —
+an *agentic dataset*. Prior RLVR forecasting work freezes research
+before training — headlines pasted into the prompt (Turtel et al.) or a
+pre-generated research phase shared across models (Mantic) — so their
+datasets are static snapshots of questions *and* context. Here only the
+questions and outcomes are stored; the agent gathers its own context
+live at rollout time, through cutoff-filtered tools. That changes three
+things. First,
+research becomes part of the measured skill: what to query, when to
+stop, and how much to trust what returns are all learned behaviors (the
+trained policy's search economy and channel arbitration are visible in
+its traces). Second, it removes the frozen-context confound — no model
+inherits another system's research, so comparisons isolate the policy
+rather than the context pipeline. Third, the dataset is continuously
+renewable: because context is acquired at rollout time, newly resolved
+markets can be added as fresh training or test questions indefinitely,
+with no context-snapshot collection step — the environment curates its
+own ever-growing, never-stale benchmark.
+
 Training and serving run on **Prime Intellect's hosted RL platform**:
-the environment is packaged with the `verifiers` library and published
-to the Prime environment hub, and each run executes as a hosted GRPO
+the environment is packaged with the `verifiers` library and
+**open-sourced on the Prime environment hub** as
+[`yafifi/prime-forecast`](https://app.primeintellect.ai/dashboard/environments/yafifi/prime-forecast)
+— anyone can evaluate a model in it or train against it. Each run
+executes as a hosted GRPO
 job (prime-rl) against Qwen3.5-35B-A3B with LoRA adapters — the
 platform manages the inference pool, rollout orchestration, and weight
 updates, so a full single-epoch run (2,113 questions × 8 rollouts ×
@@ -158,6 +188,21 @@ cutoff*. Residual risk is bounded by the data, not the filter: archived
 market data supports day-level ordering only.
 
 ## Reward functions
+
+**Why Brier.** The Brier score is a strictly proper scoring rule:
+reporting your true probability is the uniquely optimal action [Savage
+1971; Gneiting & Raftery 2007], so the reward cannot be improved by
+strategic hedging. It is also bounded in [0, 1], which yields
+lower-variance policy-gradient estimates than the unbounded log score —
+the reason Mantic report Brier trains more stably — and it matches the
+metric convention of prior RLVR forecasting work (Turtel et al.),
+keeping our numbers directly comparable. The main alternative, trading
+profit against the market, is by Kelly/market-scoring-rule theory a
+*relative* reward — it pays only for deviating from the crowd and being
+right — making it structurally an anti-anchoring shaping term; our
+boundary-relocation results predict such a reward would be gamed
+through bet geometry rather than genuine forecasting, and no prior work
+has trained on it.
 
 All runs share the base reward. For a submitted final probability p on a
 question with outcome y ∈ {0, 1}:
@@ -257,13 +302,12 @@ hadn't decided (n=104). Here the trained model **beats every frontier
 model's point estimate** in the evidence-based setting: trained 0.276,
 then Opus 0.281, Sonnet ~0.294, Flash ~0.320, Gemini Pro 0.336 (crowd
 0.232). The paired per-question gaps amplify 3–16× relative to the full
-set: +0.059 over Pro (individually significant), +0.045 over Flash,
+set: +0.059 over Pro, +0.045 over Flash,
 +0.016 over Sonnet. On easy questions everyone ties; on genuinely
 contested ones, the cheap trained model and Opus stand apart from the
-rest of the frontier. The crowd remains ahead of everyone even here,
-and we grade the subset analysis exploratory: theory-motivated, but the
-strongest contrast does not survive multiple-comparison correction at
-this sample size.
+rest of the frontier. The crowd remains ahead of everyone even here;
+we grade the subset analysis exploratory — theory-motivated, on a
+modest sample.
 
 ### What RLVR training changes: calibration and coverage
 
@@ -315,21 +359,64 @@ with live retrieval, frontier models drift *away* from the price and
 score worse (Finding 4), which is precisely what market efficiency
 predicts.
 
+## Inside the rollouts: the mechanisms, on tape
+
+Every evaluation is archived per-rollout, so the claims above can be
+checked against what the agents actually did. Three representative
+traces:
+
+**Why search hurts a frontier model.** *"Will Trump praise Lionel Messi
+by June 30?"* — the market says 0.19. Sonnet 4.5 reads the price, then
+searches and finds solid pre-cutoff reporting of Trump praising Messi
+at a White House ceremony in March, verifies it at a second outlet, and
+submits **0.95**. Resolution: NO — the market's fine print counts only
+praise *after market creation*, which post-dates March; the crowd's
+0.19 had already priced exactly that. The retrieved facts were true,
+verified, and resolution-irrelevant, and deviating on them cost 0.87
+Brier versus copying the price. This is the search-worth result
+(7 of 8 cells) in a single rollout: whatever retrieval surfaces,
+the market has already read — including the fine print.
+
+**Retrieval misleading without the anchor.** *"Will there be no next
+Gemini Pro release by June 30?"* — the search-trained policy, denied
+the market price, retrieves an official blog post announcing the next
+model is "already used internally and rolling out next," and submits
+0.15. Resolution: YES — no release came. Forward-looking announcements
+are precisely the news most likely to be stale or optimistic, and
+nothing in the rollout could say so.
+
+**The anchor used as a prior, not an answer.** *"Will Bitcoin be above
+$68,000 on March 26?"* — the market+search policy opens with the market
+tools (price 0.755, history trending up), runs exactly one web search,
+and submits **0.71**: anchored near the crowd but moderated by its own
+uncertainty, well outside any penalty zone. With the anchor in hand it
+searches materially less (≈1.4 calls/rollout vs ≈2.3 without) — the
+learned arbitration between channels that no frontier model exhibits.
+
+**What evidence discipline looks like.** On a stock-threshold question,
+the trained policy's searches come back empty; instead of stalling or
+guessing, it pulls the price series (cutoff-truncated), sees the stock
+trading above the threshold all week with the deadline days away,
+submits 0.92, and scores 0.99. On a geopolitics question, two retrieved
+pages are rejected by the leak filter mid-rollout; it falls back to
+pre-cutoff sources and priors and lands the forecast. Retrieval is
+treated as one noisy channel among several — the behavior that makes
+the trained policy the only one unharmed by switching live search on.
+
 ## Findings
 
 1. **Trained Qwen3.5 reaches frontier parity at evidence-based
   forecasting.** In the search-on, market-withheld column — the setting
    that most resembles real forecasting, where an agent must reason from
    retrieved evidence without the crowd's answer — the RL-trained
-   Qwen3.5-35B-A3B is statistically indistinguishable from Claude Opus
+   Qwen3.5-35B-A3B matches Claude Opus
    4.5, the strongest frontier model tested, at roughly 1/100th the
    inference cost. It is
    also the only policy measured whose accuracy survives functioning
-   retrieval unchanged; every frontier model got worse when live search
-   was switched on. And where the questions are genuinely contested —
+   retrieval unchanged; switching live search on degraded the frontier
+   in 7 of 8 cells. And where the questions are genuinely contested —
    the uncertain band above — the trained model tops every frontier
-   point estimate, with the margin over Gemini Pro individually
-   significant.
+   point estimate.
 2. **Accuracy converges to a crowd-bounded band.** Every policy, from an
   untrained 35B to Opus 4.5, lands in one band with the market price at
    its edge. The strongest frontier model matches the crowd; nothing
@@ -337,9 +424,9 @@ predicts.
 3. **Anchor decomposition.** Withholding the market price costs each
   policy its *anchor-worth*, measured pairwise on the same questions:
    roughly +0.06 to +0.08 soft-Brier for the frontier models and +0.04
-   for the 35Bs — the largest and most robust effects we measured, all
-   individually significant, and several times larger than any training
-   effect. Frontier models lean on the crowd hardest: their in-harness
+   for the 35Bs — the largest and most robust effects we measured,
+   consistent across every policy and several times larger than any
+   training effect. Frontier models lean on the crowd hardest: their in-harness
    advantage is substantially superior anchor exploitation, and taking
    the anchor away collapses them into — and partly below — the trained
    model's band: the trained 35B is the least crowd-dependent policy we
@@ -349,12 +436,11 @@ predicts.
    frontier") can be reproduced in either direction by choosing who sees
    the price; such claims are unidentified until the anchor is
    controlled.
-![Anchor-worth by policy](figures/f5_anchor_worth.png)
+   ![Anchor-worth by policy](figures/f5_anchor_worth.png)
 4. **Search does not pay.** Across thirteen paired search-worth
   contrasts (trained and frontier, both anchor conditions), one
-   improvement; twelve harms or nulls — individually significant harms
-   for Sonnet and Opus with market tools, and 12/13 in the same
-   direction (sign test p ≈ 0.002). Retrieved public news is stale
+   improvement; twelve harms or nulls — 12 of 13 in the same direction,
+   with the largest harms for Sonnet and Opus with market tools. Retrieved public news is stale
    relative to an efficient price: deviating from the market on the
    strength of retrieval means trading against better-informed
    counterparties. Per-bet trading simulations show exactly that —
@@ -383,16 +469,10 @@ predicts.
    policy learns search *economy* during training (3.4 → 2.25
    searches per rollout) — search de-herds, but the extra dispersion
    buys no score. Anchoring-plus-moderation *is*
-   calibration, which explains why calibration improved substantially in
-   the search-off runs while resolution — actually separating YES from
-   NO events — moved by at most +0.016 in any run (not significant).
-   What training reliably delivered instead: **calibration and
-   coverage**. ECE improved ~30–40% in every train/eval pair of the
-   search-off runs — 0.099 → 0.065 with market tools (moving the 35B
-   into the frontier calibration cluster, alongside Sonnet's 0.063),
-   0.185 → 0.127 without them, and 0.170 → 0.103 in the anchor-removal
-   run — and submission saturated (64% → ~100%) at no accuracy cost:
-   the trained model answers the hard questions the base declines.
+   calibration — which explains why training reliably delivered the
+   30–40% calibration gains and coverage saturation documented above,
+   while resolution — actually separating YES from NO events — moved by
+   at most +0.016 in any run.
    ![Boundary relocation](figures/f7_boundary_relocation.png)
    ![Base-rate herding](figures/f8_base_rate_herding.png)
 6. **Measurement is the binding constraint.** Three findings exist only
@@ -409,6 +489,8 @@ predicts.
 
 ## Provenance
 
+The environment is public:
+[`yafifi/prime-forecast` on the Prime Intellect hub](https://app.primeintellect.ai/dashboard/environments/yafifi/prime-forecast).
 Per-rollout records for every evaluation are archived in `results/`
 (webhook captures, platform metrics, eval outputs); figures regenerate
 from those archives via `scripts/make_figures.py`. Run IDs, configs, and

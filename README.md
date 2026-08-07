@@ -1,23 +1,45 @@
 # prime-forecast
 
-Agentic forecasting RLVR on [Prime Intellect Lab](https://docs.primeintellect.ai/): a multi-turn tool-use agent researches resolved Polymarket questions (context acquisition folded into the RL loop — no pre-baked context in the prompt) and is trained with LoRA GRPO on Brier-score rewards via Hosted Training.
+**Agentic RLVR forecasting on resolved Polymarket questions.** A
+multi-turn tool-use agent researches real, resolved prediction-market
+questions — web search, financial/economic time series, optionally the
+market's own price — under strict temporal leak filtering, and is
+trained with LoRA GRPO on Brier-score rewards via Prime Intellect
+Hosted Training.
 
-Combines:
+**The environment is live on the Prime Intellect hub:
+[`yafifi/prime-forecast`](https://app.primeintellect.ai/dashboard/environments/yafifi/prime-forecast)** —
+evaluate any model in it, or train against it.
+
+**Headline result**: outcome-based RL takes an open Qwen3.5-35B-A3B to
+parity with Claude Opus 4.5 at evidence-based forecasting (working
+search, market price withheld) at roughly 1/100th the inference cost,
+with 30–40% calibration gains and coverage saturating at ~100%. Full
+results, figures, and per-rollout archives: **[results/RESULTS.md](results/RESULTS.md)**.
+
+Unlike prior RLVR forecasting work that freezes research context before
+training (headlines in the prompt, or a shared pre-generated research
+phase), context here is acquired *by the agent at rollout time* through
+cutoff-filtered tools — research is part of the measured skill, and the
+dataset is continuously renewable from newly resolved markets.
+
+Builds on:
 - **Outcome-based RLVR for forecasting** — [Turtel et al. 2025](https://arxiv.org/abs/2505.17989)
 - **BLF iterative tool-use harness with a structured belief state** — [arXiv:2604.18576](https://arxiv.org/abs/2604.18576)
 - **verifiers + prime-rl** — Prime Intellect's environment/training stack
 
-Ported and adapted from the `haruspex` research codebase (TRL/vLLM custom loop → verifiers `StatefulToolEnv`).
-
 ## Layout
 
 ```
-environments/prime_forecast/   # verifiers environment package (see its README)
-scripts/build_dataset.py       # Polymarket Gamma/CLOB -> JSONL train/val/test
+environments/prime_forecast/   # verifiers environment package (published to the hub)
+  prime_forecast/data/         # packaged dataset splits (train/test JSONL)
+scripts/build_dataset.py       # Polymarket Gamma/CLOB -> JSONL splits
 scripts/analyze_dataset.py     # dataset stats (categories, outcomes, calibration)
-data/                          # built dataset splits (JSONL)
-configs/eval/                  # prime eval configs
-configs/rl/                    # Hosted Training configs (9B smoke, 35B main)
+scripts/make_figures.py        # regenerates all figures from results/ archives
+configs/eval/                  # prime eval configs (frontier panel, ablations)
+configs/rl/                    # Hosted Training configs (the five runs + expansions)
+results/                       # RESULTS.md + per-rollout archives + figures
+docs/                          # run registry, eval plans, framing notes
 tests/                         # cutoff, leak filter, reward, submit-parsing tests
 ```
 
@@ -28,42 +50,57 @@ uv venv --python 3.12 .venv
 uv pip install -p .venv/bin/python -e environments/prime_forecast pytest pytest-asyncio
 uv tool install prime
 
-# 1. Build the dataset (public Polymarket APIs, no key needed)
+# 1. Build a fresh dataset (public Polymarket APIs, no key needed)
 .venv/bin/python scripts/build_dataset.py --target-total 4000 --install
 
 # 2. Run tests
 .venv/bin/python -m pytest tests/ -q
 
-# 3. Search + secrets (Firecrawl recommended; AgentCore/Exa optional)
-cp secrets.env.example secrets.env
-# Paste FIRECRAWL_API_KEY into secrets.env (PF_SEARCH_BACKEND=firecrawl is the default).
-# AgentCore alternative (us-east-1; needs IAM keys, not Bedrock bearer alone):
-#   .venv/bin/python scripts/setup_agentcore_search.py
-#   then set AGENTCORE_GATEWAY_URL and PF_SEARCH_BACKEND=agentcore
+# 3. Secrets: search backend + Bedrock leak filter
+cp secrets.env.example secrets.env   # then fill in your keys (see Web search below)
 
-# 4. Local eval (AWS IAM for AgentCore + Bedrock leak filter)
-prime eval run prime-forecast -m openai/gpt-4.1-mini -n 10
+# 4. Local eval of any model
+prime eval run prime-forecast -m <model> -n 10
 
-# 5. Smoke train, then the main run (Hosted Training, private beta)
-prime train submit configs/rl/prime-forecast-9b.toml
-prime train submit configs/rl/prime-forecast-35b.toml
-
-# 6. Deploy the adapter
-prime train download <job-id> --output checkpoints/
-prime deployments create <adapter-id>
+# 5. Hosted Training (see configs/rl/ for the runs used in the paper)
+prime train configs/rl/prime-forecast-35b-v2.toml
 ```
 
-## Web search
+## The environment
 
-Backends via `PF_SEARCH_BACKEND`: **`firecrawl`** (default; `tbs` date-range cutoff, search-only = 1 credit/call), **`tavily`** (free tier; good for local eval), **`agentcore`** (AWS, us-east-1, ~$7/1k; needs IAM gateway), **`brave`**, **`exa`**. RL configs cap `max_web_searches` to control spend.
-
-Results are cached post-leak-filter (`PF_SEARCH_CACHE_DIR`): repeat queries cost zero search credits and zero Bedrock filter calls, and the cache dir is a publishable corpus of every (query, cutoff) → filtered-context pair the agent saw.
-
+Up to 10 turns; tools: `web_search` (≤3/rollout, leak-filtered),
+`lookup_url`, `fetch_ts_yfinance` / `fetch_fred_series` /
+`fetch_ts_dbnomics` (cutoff-truncated series), `fetch_wikipedia_toc` /
+`fetch_wikipedia_section`, `analyze_trend`, optional Polymarket crowd
+tools (`include_market_tools`), and `submit`. The system prompt
+maintains an explicit belief state — every tool call carries an updated
+probability and evidence lists, so each forecast is an auditable update
+trajectory.
 
 ## Reward
 
-`reward = 1 - (p - y)^2` (positive-shifted Brier). Missing submission scores **0.55** (below always-0.5) so stalling loses to mediocre submits. Optional BLF protocol bonus defaults to **off** (`protocol_bonus_weight=0`). Cutoff-safe Polymarket crowd tools are on by default (`include_market_tools=true`); `market_brier` remains an eval metric.
+`reward = 1 - (p - y)^2` (positive-shifted Brier; strictly proper).
+Missing submission scores **0.55** (below always-0.5) so stalling loses
+to mediocre submits. Optional anti-copy penalty for market-visible
+training (`crowd_copy_penalty`, `crowd_copy_eps`) deducts reward near
+the crowd price. `market_brier` is logged as an eval metric.
+
+## Web search
+
+Backends via `PF_SEARCH_BACKEND`: `agentcore` (AWS gateway; used for
+the paper's search-on runs), `firecrawl`, `tavily`, `brave`, `exa`,
+`google_cse`, `searxng` — with a comma-separated fallback chain.
+Results are cached post-leak-filter (`PF_SEARCH_CACHE_DIR`): repeat
+queries cost zero credits and the cache is a publishable corpus of
+every (query, cutoff) → filtered-context pair the agent saw. Empty
+result sets are never cached, and result-count health checks guard
+against silent backend failures (`scripts/check_search.sh`).
 
 ## Leakage controls
 
-Temporal eligibility (markets resolving after the Qwen3.5 release window), Exa hard date filters, prediction-market domain blocklist, heuristic post-cutoff date/outcome filters, Bedrock Haiku LLM leak filter, cutoff-clamped time-series/Wikipedia tools, and temporal train/val/test splits.
+Temporal eligibility (all questions resolve after the base model's
+release window; test resolutions strictly postdate all training data),
+prediction-market domain blocklist, heuristic post-cutoff date/fact
+filters, Bedrock Haiku LLM KEEP/DROP filter, cutoff-clamped
+time-series/Wikipedia tools, and temporal train/test splits. Residual
+bound: archived market data supports day-level ordering only.
