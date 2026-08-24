@@ -11,3 +11,14 @@ wandb/
 checkpoints/
 eqp-briefing-local.md
 artifacts/
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+# paper sources stay out of the public artifact repo during review
+results/paper*.tex
+results/paper*.pdf
+results/neurips_2026.sty
+.vscode/

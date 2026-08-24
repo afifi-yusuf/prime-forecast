@@ -3,7 +3,8 @@
 **Main claim: outcome-based RL takes an open Qwen3.5-35B-A3B to parity
 with Claude Opus 4.5 at evidence-based forecasting — reasoning from
 retrieved evidence without seeing the market's answer — at roughly
-1/100th the inference cost, and it is the only model measured whose
+about 5% of the inference cost (~$0.011 vs ~$0.24 per question at
+August 2026 list prices), and it is the only model measured whose
 accuracy is unharmed by live retrieval. On the hardest questions, where
 the market itself is undecided, its lead over most of the frontier
 grows several-fold.**
@@ -268,10 +269,15 @@ the frontier:
 | trained, market+search | **0.252**  | —     |
 | trained, search-only   | 0.254      | 0.128 |
 | Claude Opus 4.5        | 0.256      | 0.136 |
-| untrained base         | ~0.26      | —     |
 | Claude Sonnet 4.5      | 0.273      | 0.176 |
 | Gemini 3.1 Pro         | 0.278      | 0.215 |
 | Gemini 3.6 Flash       | 0.286      | 0.205 |
+
+(The untrained base is excluded from this ranking: it answers only ~79%
+of questions, and under 0.5-imputation abstention is nearly free in
+this column, so its headline number is not comparable to policies that
+answer everything. Its behavior is analyzed in "What RLVR training
+changes" below.)
 
 
 The same ordering holds with retrieval disabled entirely (search-off
@@ -410,7 +416,7 @@ the trained policy the only one unharmed by switching live search on.
    that most resembles real forecasting, where an agent must reason from
    retrieved evidence without the crowd's answer — the RL-trained
    Qwen3.5-35B-A3B matches Claude Opus
-   4.5, the strongest frontier model tested, at roughly 1/100th the
+   4.5, the strongest frontier model tested, at about 5% of the
    inference cost. It is
    also the only policy measured whose accuracy survives functioning
    retrieval unchanged; switching live search on degraded the frontier

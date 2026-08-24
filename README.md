@@ -13,7 +13,7 @@ evaluate any model in it, or train against it.
 
 **Headline result**: outcome-based RL takes an open Qwen3.5-35B-A3B to
 parity with Claude Opus 4.5 at evidence-based forecasting (working
-search, market price withheld) at roughly 1/100th the inference cost,
+search, market price withheld) at about 5% of the inference cost,
 with 30–40% calibration gains and coverage saturating at ~100%. Full
 results, figures, and per-rollout archives: **[results/RESULTS.md](results/RESULTS.md)**.
 

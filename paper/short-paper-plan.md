@@ -97,8 +97,12 @@ the inference cost.
 
 ## Figures/tables (main text max: 2 figures + 1 table)
 
-- Fig 1 = f10 (evidence-based ranking). Fig 2 = f12 (behavioral gains).
-- Table 1 = evidence-based column with soft-Brier [CI], ECE, submit%.
+- Fig 1 = f10 (evidence-based ranking; trained + frontier only — the
+  untrained base is EXCLUDED from ranking exhibits: at 79% coverage its
+  soft-Brier is imputation-protected and not comparable; it appears in
+  Fig 2 (deltas) and an appendix note explaining the exclusion).
+- Table 1 = evidence-based column with soft-Brier [CI], ECE, submit%
+  (trained + frontier rows only; base handled per above).
 - f11 becomes Fig 3 only if layout allows; else appendix.
 
 ## Numbers policy
