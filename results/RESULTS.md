@@ -132,9 +132,7 @@ infrastructure.
 
 Serving matters as much as the environment: trained policies are
 evaluated through the training platform's own inference stack, with
-every rollout captured via a results webhook (a serving gap across
-other stacks is documented in Finding 6 — this is why we do not score
-policies through third-party serving). Frontier models run the
+every rollout captured via a results webhook. Frontier models run the
 identical environment locally through an API proxy (Bedrock/Vertex).
 Same tools, same filters, same turn budget for every row of every
 table.
@@ -228,7 +226,7 @@ to zero at 0.08.
 - **neither / search-only / market+search** — intended pure Brier; an
 inherited default left a narrow residual ramp active
 (0.20·(1 − d/0.02) for d < 0.02), which fired on 5–11% of submitted
-training rollouts (corrections ledger, C3).
+training rollouts.
 
 Under GRPO, advantages are group-relative per question, so reward terms
 constant within a question's rollout group (e.g. the crowd's own Brier)
@@ -481,17 +479,6 @@ the trained policy the only one unharmed by switching live search on.
    at most +0.016 in any run.
    ![Boundary relocation](figures/f7_boundary_relocation.png)
    ![Base-rate herding](figures/f8_base_rate_herding.png)
-6. **Measurement is the binding constraint.** Three findings exist only
-  because we read rollouts rather than dashboards: the silent search
-   outage (empty results under HTTP 200 across an entire campaign); a
-   reward-leakage channel (an unparsed verbose date let a rollout
-   retrieve a resolved outcome for near-perfect reward — caught in trace
-   audit, fixed, and the run restarted); and a serving gap (identical
-   weights, 94% vs 48% task compliance across inference stacks — hence
-   all headline evals are served by the training platform's own stack
-   and captured per-rollout via webhook). None was visible in any
-   aggregate metric.
-
 
 ## Provenance
 
@@ -499,6 +486,5 @@ The environment is public:
 [`yafifi/prime-forecast` on the Prime Intellect hub](https://app.primeintellect.ai/dashboard/environments/yafifi/prime-forecast).
 Per-rollout records for every evaluation are archived in `results/`
 (webhook captures, platform metrics, eval outputs); figures regenerate
-from those archives via `scripts/make_figures.py`. Run IDs, configs, and
-the full technical changelog live in `results/RESULTS-detailed.md` and
+from those archives via `scripts/make_figures.py`. Run IDs and configs live in
 `docs/run-registry.md`.

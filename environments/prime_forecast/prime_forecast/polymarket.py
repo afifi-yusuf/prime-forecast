@@ -166,7 +166,7 @@ async def search_markets(query: str, ctx: dict, limit: int = 5) -> str:
         })
     payload: dict = {"query": query, "results": results, "source": "gamma_search"}
     if error:
-        # Surface outages explicitly: an empty list otherwise teaches the agent
+        # Surface failed searches explicitly: an empty list otherwise teaches the agent
         # the false lesson that no related markets exist.
         payload["error"] = error
         payload["note"] = "Search failed — do NOT conclude related markets don't exist."

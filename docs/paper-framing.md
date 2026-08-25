@@ -44,7 +44,7 @@ load-bearing evidence rather than a miss.
    Write both paragraph variants now; drop one in when v3 lands.
 
 6. **Methods as contributions** (brief, explicit): platform-stack evals via
-   results webhook (the 94%/48% serving gap), difficulty-adjusted training
+   results webhook, difficulty-adjusted training
    curves (raw curves uninterpretable under single-epoch RLVR),
    5-layer auditable leak pipeline + released search corpus.
 
