@@ -297,17 +297,15 @@ sampling noise and should be read as tiers, not rankings.
 
 ### Where forecasting is hardest, the trained model pulls ahead
 
-![Uncertain-question divergence](figures/f11_uncertain_divergence.png)
-
 Following Turtel et al.'s observation that forecasting skill
 concentrates where the market itself is uncertain, we pre-declared the
 subset with cutoff price in [0.30, 0.70] — questions the crowd genuinely
 hadn't decided (n=104). Here the trained model **beats every frontier
-model's point estimate** in the evidence-based setting: trained 0.276,
-then Opus 0.281, Sonnet ~0.294, Flash ~0.320, Gemini Pro 0.336 (crowd
-0.232). The paired per-question gaps amplify 3–16× relative to the full
-set: +0.059 over Pro, +0.045 over Flash,
-+0.016 over Sonnet. On easy questions everyone ties; on genuinely
+model's point estimate** in the evidence-based setting: trained 0.274,
+then Opus 0.281, Sonnet 0.295, Gemini Pro 0.316, Flash 0.319 (crowd
+0.232). Every paired per-question gap is larger than on the full set:
++0.042 over Pro, +0.046 over Flash, +0.021 over Sonnet, +0.008 over Opus
+(vs +0.001 on the full set). On easy questions everyone ties; on genuinely
 contested ones, the cheap trained model and Opus stand apart from the
 rest of the frontier. The crowd remains ahead of everyone even here;
 we grade the subset analysis exploratory — theory-motivated, on a
@@ -470,7 +468,7 @@ the trained policy the only one unharmed by switching live search on.
    pre-registered). Giving the anchor-less policy working retrieval
    partially reverses the herding: the search-only run's median
    prediction moves to 0.40 with extremes recovering to 12%, and the
-   policy learns search *economy* during training (3.4 → 2.25
+   policy learns search *economy* during training (3.8 → 2.25
    searches per rollout) — search de-herds, but the extra dispersion
    buys no score. Anchoring-plus-moderation *is*
    calibration — which explains why training reliably delivered the

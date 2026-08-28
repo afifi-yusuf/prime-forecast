@@ -22,4 +22,6 @@ results/paper*.tex
 results/paper*.pdf
 results/neurips_2026.sty
 .vscode/
-paper/slides/
+slides/
+PRODUCT.md
+results/pdfs/

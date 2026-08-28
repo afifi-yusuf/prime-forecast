@@ -232,9 +232,6 @@ ax.set_xticks(range(len(pairs)))
 ax.set_xticklabels([n for n, *_ in pairs], rotation=20, ha="right", fontsize=8.5)
 ax.set_ylabel("soft-Brier")
 ax.set_ylim(0, 0.33)
-ax.set_title(
-    "Anchor-worth: frontier models lean on the crowd more than 35Bs\n"
-    "(paired within-model, search-off arm, all p<0.001)", fontsize=10)
 ax.legend(frameon=False, fontsize=8)
 style(ax)
 plt.tight_layout()
