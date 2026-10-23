@@ -5,7 +5,7 @@ tags = ["multi-turn", "tools", "forecasting", "train", "eval"]
 version = "0.1.20"
 requires-python = ">=3.11"
 dependencies = [
-    "verifiers>=0.2.0",
+    "verifiers>=0.2.0,<0.4",  # 0.4 removed the top-level legacy API (vf.StatefulToolEnv)
     "datasets",
     "httpx",
     "boto3",

@@ -36,6 +36,7 @@ environments/prime_forecast/   # verifiers environment package (published to the
 scripts/build_dataset.py       # Polymarket Gamma/CLOB -> JSONL splits
 scripts/analyze_dataset.py     # dataset stats (categories, outcomes, calibration)
 scripts/make_figures.py        # regenerates all figures from results/ archives
+scripts/forecastbench.py       # ForecastBench tournament rounds: fetch, run, submit, score
 configs/eval/                  # prime eval configs (frontier panel, ablations)
 configs/rl/                    # Hosted Training configs (the five runs + expansions)
 results/                       # RESULTS.md + per-rollout archives + figures
