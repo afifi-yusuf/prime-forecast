@@ -133,10 +133,24 @@ def episodes(qset: dict) -> list[dict]:
     return out
 
 
-def env_row(e: dict, cutoff: str) -> dict:
+# --notes: per-source guidance appended to dataset questions' resolution text. Each targets a failure seen in
+# rehearsal traces (2026-08-16 and held-out rounds); adopt only if it beats post-processing on held-out episodes.
+NOTES = {
+    "acled": "Forecasting note: this question asks about a CHANGE versus the stated baseline average. Evidence "
+             "that the activity is ongoing is already reflected in that baseline and is not evidence of an "
+             "increase. Historically about 12% of these questions resolve YES.",
+    "yfinance": "Forecasting note: over this horizon, a stock's move is close to a random walk. Stay near 50% "
+                "unless there is a specific, scheduled catalyst before the resolution date.",
+}
+
+
+def env_row(e: dict, cutoff: str, notes: bool = False) -> dict:
     """A row in this repo's dataset schema. Outcome is a placeholder; scoring uses the resolution set."""
+    rules = e["rules"]
+    if notes and e["resolution_date"] is not None and e["source"] in NOTES:
+        rules = f"{rules}\n\n{NOTES[e['source']]}"
     return {"example_id": e["key"], "market_id": e["key"], "question": e["question"],
-            "resolution_criteria": e["rules"], "cutoff_date": cutoff, "resolution_date": e["deadline"],
+            "resolution_criteria": rules, "cutoff_date": cutoff, "resolution_date": e["deadline"],
             "category": e["source"], "outcome": 0, "price_at_cutoff": None, "price_history": [],
             "token_id": None, "slug": e["fb_id"], "volume": None}
 
@@ -264,7 +278,7 @@ def cmd_run(args) -> None:
                 res = [{"key": e["key"], "rollout_idx": 0, "p": None if rng.random() < 0.05 else rng.random(),
                         "tokens_in": 0, "tokens_out": 0} for e in batch]
             else:
-                res = rollouts([env_row(e, cutoff) for e in batch], args, args.mode)
+                res = rollouts([env_row(e, cutoff, args.notes) for e in batch], args, args.mode)
             with open(path, "a") as fh, gzip.open(path.with_name("traces.jsonl.gz"), "at") as tf:
                 for r in res:  # full transcripts kept apart: rollouts.jsonl stays small and fast to rescore
                     trace = r.pop("trace", None)
@@ -398,6 +412,7 @@ def main() -> None:
             p.add_argument("--max-concurrent", type=int, default=16)
             p.add_argument("--temperature", type=float, default=1.0)
             p.add_argument("--max-tokens", type=int, default=12288)
+            p.add_argument("--notes", action="store_true", help="append per-source forecasting notes (NOTES)")
             p.add_argument("--keys", default=None, help="file of episode keys to run (one per line)")
             p.add_argument("--resolved-only", action="store_true", help="only episodes already in the resolution set")
             p.add_argument("--retries", type=int, default=2, help="coverage passes over episodes with no forecast")
