@@ -239,6 +239,9 @@ def cmd_run(args) -> None:
     eps = episodes(qset)
     if args.resolved_only:  # rehearsals: spend compute only on episodes the resolution set can score
         eps = [e for e in eps if e["key"] in resolved_truth(args.due)]
+    if args.keys:  # an explicit episode list, one key per line (e.g. a hand-picked trace study)
+        want = {l.strip() for l in open(args.keys) if l.strip()}
+        eps = [e for e in eps if e["key"] in want]
     if args.sample:
         eps = stratified(eps, args.sample, args.seed)
     path = run_dir(args.due, args.name) / "rollouts.jsonl"
@@ -367,6 +370,7 @@ def main() -> None:
             p.add_argument("--max-concurrent", type=int, default=16)
             p.add_argument("--temperature", type=float, default=1.0)
             p.add_argument("--max-tokens", type=int, default=12288)
+            p.add_argument("--keys", default=None, help="file of episode keys to run (one per line)")
             p.add_argument("--resolved-only", action="store_true", help="only episodes already in the resolution set")
             p.add_argument("--retries", type=int, default=2, help="coverage passes over episodes with no forecast")
             p.add_argument("--stub", action="store_true", help="random forecasts; tests the pipeline without a model")
