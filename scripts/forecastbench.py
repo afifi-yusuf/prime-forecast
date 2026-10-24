@@ -140,6 +140,9 @@ NOTES = {
     "acled": "Forecasting note: this question asks about a CHANGE versus the stated baseline average. Evidence "
              "that the activity is ongoing is already reflected in that baseline and is not evidence of an "
              "increase. Historically about 12% of these questions resolve YES.",
+    "wikipedia": "Forecasting note: this resolves on the Wikipedia page itself. Before forecasting, read the "
+                 "relevant table or section as of the cutoff with fetch_wikipedia_toc and fetch_wikipedia_section, "
+                 "and reason from those values rather than from news coverage.",
     "yfinance": "Forecasting note: over this horizon, a stock's move is close to a random walk. Stay near 50% "
                 "unless there is a specific, scheduled catalyst before the resolution date.",
 }
