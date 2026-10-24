@@ -3,12 +3,15 @@
 Layers, applied in order:
   1. Domain blocklist — prediction-market pages are never fetched.
   2. Heuristic date filter — publish dates / post-cutoff facts (cutoff.py).
+     PF_DATE_FILTER=0 turns it off; only for live forecasting, where the cutoff
+     is now and a post-cutoff date is a scheduled event, not a leak.
   3. Bedrock LLM filter — KEEP/DROP per result (Claude Haiku by default).
 The summarizer (also Bedrock) re-filters its input and scrubs its output.
 """
 
 from __future__ import annotations
 
+import os
 import re
 
 from prime_forecast.bedrock import chat, llm_enabled
@@ -122,13 +125,26 @@ def strip_age_flags(text: str) -> str:
     return _AGE_FLAG_RE.sub("", text)
 
 
+def date_filter_enabled() -> bool:
+    """Layer 2 switch. Default on; never disable it with a past cutoff."""
+    return os.environ.get("PF_DATE_FILTER", "1").strip().lower() not in ("0", "false", "no")
+
+
+def _scrub(text: str, cutoff_date: str) -> str:
+    return scrub_lines_after_cutoff(text, cutoff_date) if date_filter_enabled() else text
+
+
+def _post_cutoff(text: str, cutoff_str: str) -> bool:
+    return date_filter_enabled() and text_has_post_cutoff_facts(text, cutoff_str)
+
+
 def _strict_undated_drop(block: str, cutoff_str: str) -> bool:
     """Heuristic-only fallback rule (LLM filter unavailable): a result with no
     parseable publish date that mentions post-cutoff dates is presumed leaky
     (e.g. FOMC minutes pages published after the meeting carry no date in Exa).
     Mirrors the LLM prompt's "when unsure -> DROP"."""
     cutoff_dt = parse_ts(cutoff_str)
-    if cutoff_dt is None:
+    if cutoff_dt is None or not date_filter_enabled():
         return False
     if published_date_in_text(block) is not None:
         return False  # dated results are handled by the standard heuristic
@@ -165,7 +181,7 @@ async def filter_results(raw: str, cutoff_date: str, *, question: str = "") -> t
     decisions: dict[int, str] = {}
     survivors: list[tuple[int, str]] = []
     for i, block in enumerate(results, 1):
-        if text_has_post_cutoff_facts(block, cutoff_str) or market_content_leak(block):
+        if _post_cutoff(block, cutoff_str) or market_content_leak(block):
             decisions[i] = "DROP"
         else:
             survivors.append((i, block))
@@ -223,7 +239,7 @@ async def filter_page_content(
         return "", debug
     cutoff_str = str(cutoff_date)[:10] if cutoff_date else ""
 
-    if text_has_post_cutoff_facts(text, cutoff_str) or market_content_leak(text):
+    if _post_cutoff(text, cutoff_str) or market_content_leak(text):
         debug.update(mode="heuristic", decisions={1: "DROP"})
         return "", debug
 
@@ -266,7 +282,7 @@ async def summarize_results(
 
     if not llm_enabled():
         parts = [p.strip()[:600] for p in filtered.split(RESULTS_SEPARATOR) if p.strip()]
-        text = scrub_lines_after_cutoff("\n\n---\n\n".join(parts), cutoff_date)[:max_chars]
+        text = _scrub("\n\n---\n\n".join(parts), cutoff_date)[:max_chars]
         debug.update(mode="passthrough")
         return text, debug
 
@@ -284,7 +300,7 @@ async def summarize_results(
         f"Results:\n{filtered[:12000]}"
     )
     text, inp, out = await chat(prompt, max_tokens=800, role="summarize")
-    summary = scrub_lines_after_cutoff(text, cutoff_date)
+    summary = _scrub(text, cutoff_date)
     if not summary.strip():
         summary = "No pre-cutoff facts could be extracted from the search results."
     summary = summary[:max_chars]
