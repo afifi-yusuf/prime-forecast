@@ -85,7 +85,8 @@ exec $W/vllm/bin/vllm serve $N/models/merged --served-model-name dyor-v4 \\
   --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 \\
   --limit-mm-per-prompt '{"image":0,"video":0}'
 EOS
-pgrep -f "[v]llm/bin/vllm serve" >/dev/null || setsid nohup bash serve.sh > serve.log 2>&1 < /dev/null &  # detached, or ssh waits on it
+# Every fd of a backgrounded list must leave the ssh channel, or ssh waits for the server to exit.
+pgrep -f "[v]llm/bin/vllm serve" >/dev/null || { setsid nohup bash serve.sh > serve.log 2>&1 < /dev/null & } > /dev/null 2>&1
 for i in \$(seq 1 90); do curl -sf -H "Authorization: Bearer local" localhost:8000/v1/models >/dev/null && break
   pgrep -f "[v]llm/bin/vllm serve" >/dev/null || { tail -20 serve.log; exit 1; }; sleep 10; done
 curl -s localhost:8000/v1/chat/completions -H "Authorization: Bearer local" -H "content-type: application/json" -d '{"model":"dyor-v4","max_tokens":1024,"messages":[{"role":"user","content":"Will the Fed cut rates in December? Search first."}],"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}]}' \
@@ -115,9 +116,11 @@ case "${1:-}" in
          | grep -E 'episodes to run|batch|retry|coverage'" ;;
   run)
     due=${2:?due date}
-    box "cd $W/prime-forecast && .venv/bin/python scripts/forecastbench.py fetch --due $due && set -a && . ../secrets.env && set +a \
-      && setsid nohup .venv/bin/python scripts/forecastbench.py run --due $due --mode live --name live --batch 300 --max-concurrent 40 > ../run_$due.log 2>&1 < /dev/null &
-      sleep 15; grep -E 'episodes to run' $W/run_$due.log" ;;
+    box "cd $W/prime-forecast && .venv/bin/python scripts/forecastbench.py fetch --due $due || exit 1
+      set -a; . ../secrets.env; set +a
+      { setsid nohup .venv/bin/python scripts/forecastbench.py run --due $due --mode live --name live --batch 300 \
+          --max-concurrent 40 > ../run_$due.log 2>&1 < /dev/null & } > /dev/null 2>&1
+      sleep 20; grep -E 'episodes to run' $W/run_$due.log" ;;
   status)
     box "curl -sf -H 'Authorization: Bearer local' localhost:8000/v1/models >/dev/null && echo 'vLLM up' || echo 'vLLM DOWN';
       pgrep -f '[f]orecastbench.py run' >/dev/null && echo 'run: running' || echo 'run: not running';
