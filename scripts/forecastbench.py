@@ -348,6 +348,53 @@ def live_crowd(eps: list[dict], path: Path) -> dict[str, float]:
     return prices
 
 
+def _temp_climatology(obs: dict, due, rd) -> float | None:
+    """P(temp on rd > temp on due) from the station's own history: past 30 years, same calendar days +/-3, pairwise."""
+    from datetime import date, timedelta
+    wins = n = 0
+    for y in range(due.year - 30, due.year):
+        for dd in range(-3, 4):
+            try:
+                a = obs.get(date(y, due.month, due.day) + timedelta(days=dd))
+                b = obs.get(date(y + (rd.year - due.year), rd.month, rd.day) + timedelta(days=dd))
+            except ValueError:
+                continue
+            if a is not None and b is not None:
+                wins += b > a
+                n += 1
+    return (wins + 0.5) / (n + 1) if n >= 20 else None
+
+
+def climatology(eps: list[dict], due: str, path: Path) -> dict[str, float]:
+    """DBnomics (Meteo-France station temperature) episodes: climatological probability, data before due only.
+    Cached at path. Rehearsals: climatology alone scored 0.144-0.285 Brier over 4 rounds and beat DYOR on both
+    rounds with DYOR forecasts (0.186 vs 0.205, 0.294 vs 0.347)."""
+    if path.exists():
+        return json.loads(path.read_text())
+    from datetime import date
+    due_d = date.fromisoformat(due)
+    out, series = {}, {}
+    for e in eps:
+        if e["source"] != "dbnomics" or e["resolution_date"] is None:
+            continue
+        sid = e["fb_id"]
+        if sid not in series:
+            try:
+                prov, ds, code = sid.split("_", 2)
+                doc = _get_json(f"https://api.db.nomics.world/v22/series/{prov}/{ds}/{code}?observations=1&format=json")
+                doc = doc["series"]["docs"][0]
+                series[sid] = {date.fromisoformat(t[:10]): float(v) for t, v in zip(doc["period"], doc["value"])
+                               if v not in (None, "NA") and date.fromisoformat(t[:10]) < due_d}
+            except Exception:  # noqa: BLE001  no climatology for this station: the model's forecast stands
+                series[sid] = {}
+        c = _temp_climatology(series[sid], due_d, date.fromisoformat(e["resolution_date"])) if series[sid] else None
+        if c is not None:
+            out[e["key"]] = c
+    path.write_text(json.dumps(out, indent=1))
+    print(f"climatology: {len(out)} DBnomics episodes from {sum(bool(v) for v in series.values())}/{len(series)} stations")
+    return out
+
+
 def pooled(due: str, name: str, pool: list[str] | None) -> dict[str, float]:
     """Average each episode's forecast across runs (each run's own mean first); a run missing an episode is skipped."""
     runs = [predictions(due, n) for n in [name, *(pool or [])]]
@@ -390,6 +437,9 @@ def cmd_submit(args) -> None:
     eps = episodes(qset)
     preds = pooled(args.due, args.name, args.pool)
     priors = parse_priors(args.source_prior)
+    if args.climatology is not None:  # DBnomics: blend the model with station climatology (model weight W)
+        clim = climatology(eps, qset["forecast_due_date"], run_dir(args.due, args.name) / "climatology.json")
+        preds = {k: (args.climatology * p + (1 - args.climatology) * clim[k]) if k in clim else p for k, p in preds.items()}
     if args.live_crowd:  # fresher anchor than the freeze value (10 days old in most rounds)
         live = live_crowd(eps, run_dir(args.due, args.name) / "live_crowd.json")
         eps = [{**e, "crowd": live.get(e["key"], e["crowd"])} for e in eps]
@@ -482,6 +532,8 @@ def main() -> None:
             p.add_argument("--model-name", required=True, help='permanent leaderboard name, e.g. "DYOR-35B-A3B"')
             p.add_argument("--model-org", default=None)
             p.add_argument("--variants", nargs="+", default=["pure", "anchored"], choices=["pure", "anchored"])
+            p.add_argument("--climatology", type=float, default=None, metavar="W",
+                           help="DBnomics temperature questions: W*model + (1-W)*station climatology")
             p.add_argument("--live-crowd", action="store_true",
                            help="anchor market questions on current platform prices (cached in the run dir)")
             p.add_argument("--number", type=int, default=1, help="N in <due>.<org>.<N>.json for the first variant")
