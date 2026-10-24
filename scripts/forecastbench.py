@@ -47,6 +47,7 @@ import os
 import random
 import re
 import tempfile
+import urllib.parse
 import urllib.request
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -299,6 +300,54 @@ def predictions(due: str, name: str) -> dict[str, float]:
     return {k: sum(v) / len(v) for k, v in acc.items()}
 
 
+def _get_json(url: str) -> object:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=20) as f:
+        return json.loads(f.read())
+
+
+def _live_price(e: dict) -> float | None:
+    """Current YES price for a market question from its platform's public API (None if unavailable).
+    Metaculus needs an API token, so its questions keep ForecastBench's freeze value."""
+    src, qid = e["source"], e["fb_id"]
+    if src == "polymarket":
+        for closed in ("false", "true"):
+            ms = _get_json("https://gamma-api.polymarket.com/markets?" + urllib.parse.urlencode({"condition_ids": qid, "closed": closed}))
+            if ms:
+                outs, prices = json.loads(ms[0]["outcomes"]), json.loads(ms[0]["outcomePrices"])
+                return float(prices[[o.lower() for o in outs].index("yes")]) if "yes" in [o.lower() for o in outs] else float(prices[0])
+    elif src == "manifold":
+        m = _get_json(f"https://api.manifold.markets/v0/market/{qid}")
+        return float(m["probability"]) if m.get("probability") is not None else None
+    elif src == "kalshi":
+        m = _get_json(f"https://api.elections.kalshi.com/trade-api/v2/markets/{qid}")["market"]
+        bid, ask = float(m.get("yes_bid_dollars") or 0), float(m.get("yes_ask_dollars") or 0)
+        if 0 < bid <= ask < 1 and ask - bid <= 0.10:
+            return (bid + ask) / 2
+        return float(m["last_price_dollars"]) if m.get("last_price_dollars") else None
+    return None
+
+
+def live_crowd(eps: list[dict], path: Path) -> dict[str, float]:
+    """Fetch (once; cached at path) current prices for every market episode; the submission's anchor uses them."""
+    if path.exists():
+        return json.loads(path.read_text())["prices"]
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(e):
+        try:
+            return e["key"], _live_price(e)
+        except Exception:  # noqa: BLE001  any API failure falls back to the freeze value
+            return e["key"], None
+    with ThreadPoolExecutor(16) as ex:
+        got = dict(ex.map(one, [e for e in eps if e["resolution_date"] is None]))
+    prices = {k: v for k, v in got.items() if v is not None}
+    path.write_text(json.dumps({"fetched_at": datetime.now(timezone.utc).isoformat(), "prices": prices}, indent=1))
+    by = Counter(k.split(":")[1] for k in prices); tot = Counter(k.split(":")[1] for k in got)
+    print("live crowd prices:", {s: f"{by[s]}/{tot[s]}" for s in sorted(tot)}, "(others keep the freeze value)")
+    return prices
+
+
 def pooled(due: str, name: str, pool: list[str] | None) -> dict[str, float]:
     """Average each episode's forecast across runs (each run's own mean first); a run missing an episode is skipped."""
     runs = [predictions(due, n) for n in [name, *(pool or [])]]
@@ -341,6 +390,9 @@ def cmd_submit(args) -> None:
     eps = episodes(qset)
     preds = pooled(args.due, args.name, args.pool)
     priors = parse_priors(args.source_prior)
+    if args.live_crowd:  # fresher anchor than the freeze value (10 days old in most rounds)
+        live = live_crowd(eps, run_dir(args.due, args.name) / "live_crowd.json")
+        eps = [{**e, "crowd": live.get(e["key"], e["crowd"])} for e in eps]
     totals = Counter("market" if e["resolution_date"] is None else "dataset" for e in eps)
     for n, var in enumerate(args.variants, start=args.number):
         forecasts, missing = [], Counter()
@@ -430,6 +482,8 @@ def main() -> None:
             p.add_argument("--model-name", required=True, help='permanent leaderboard name, e.g. "DYOR-35B-A3B"')
             p.add_argument("--model-org", default=None)
             p.add_argument("--variants", nargs="+", default=["pure", "anchored"], choices=["pure", "anchored"])
+            p.add_argument("--live-crowd", action="store_true",
+                           help="anchor market questions on current platform prices (cached in the run dir)")
             p.add_argument("--number", type=int, default=1, help="N in <due>.<org>.<N>.json for the first variant")
     args = ap.parse_args()
     {"fetch": cmd_fetch, "build": cmd_build, "run": cmd_run, "submit": cmd_submit, "score": cmd_score}[args.cmd](args)
