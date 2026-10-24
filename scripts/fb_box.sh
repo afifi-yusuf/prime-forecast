@@ -126,17 +126,21 @@ case "${1:-}" in
       pgrep -f '[f]orecastbench.py run' >/dev/null && echo 'run: running' || echo 'run: not running';
       [ -n '${2:-}' ] && tr '\r' '\n' < $W/run_${2:-x}.log | grep -E 'episodes to run|batch|retry|coverage|Error' | tail -6;
       sudo shutdown --show 2>&1 | head -1" ;;
-  submit)
-    due=${2:?due date}
+  submit)  # file 1: DYOR; file 2 (if the base run exists): DYOR+base averaged. Same post-processing for both.
+    due=${2:?due date}; post="--variants anchored --source-prior ${FB_PRIORS:-acled=0.12 yfinance=0.5:0}"
     box "cd $W/prime-forecast && .venv/bin/python scripts/forecastbench.py submit --due $due --name live --org '${FB_ORG:?}' \
-      --model-name '${FB_MODEL_NAME:?}' --variants anchored"
+      --model-name '${FB_MODEL_NAME:?}' $post --number 1 && if [ -f outputs/forecastbench/runs/$due/live-base/rollouts.jsonl ]; then \
+      .venv/bin/python scripts/forecastbench.py submit --due $due --name live --pool live-base --org '$FB_ORG' \
+      --model-name '$FB_MODEL_NAME (ensemble)' $post --number 2; fi"
     mkdir -p "$ROOT/outputs/forecastbench/runs/$due/live"
     scp -i "$FB_KEY" -q "ubuntu@$(ip):$W/prime-forecast/outputs/forecastbench/runs/$due/live/*" "$ROOT/outputs/forecastbench/runs/$due/live/"
     ls -l "$ROOT/outputs/forecastbench/runs/$due/live/" ;;
   upload)
-    due=${2:?due date}; f=$(ls "$ROOT/outputs/forecastbench/runs/$due/live/$due".*.1.json)
-    python3 -c "import json,sys; d=json.load(open('$f')); print(d['organization'], '|', d['model'], '|', len(d['forecasts']), 'forecasts')"
-    gcloud storage cp "$f" "${FB_BUCKET:?}/$due/" --account="${FB_GCLOUD_ACCOUNT:?}"
+    due=${2:?due date}
+    for f in "$ROOT/outputs/forecastbench/runs/$due/live/$due".*.json; do
+      python3 -c "import json,sys; d=json.load(open('$f')); print('$(basename "$f")', '|', d['organization'], '|', d['model'], '|', len(d['forecasts']), 'forecasts')"
+      gcloud storage cp "$f" "${FB_BUCKET:?}/$due/" --account="${FB_GCLOUD_ACCOUNT:?}"
+    done
     gcloud storage ls -l "$FB_BUCKET/$due/" --account="$FB_GCLOUD_ACCOUNT" ;;
   down)
     : "${FB_INSTANCE:?no instance in $STATE}"

@@ -342,7 +342,7 @@ def cmd_submit(args) -> None:
     preds = pooled(args.due, args.name, args.pool)
     priors = parse_priors(args.source_prior)
     totals = Counter("market" if e["resolution_date"] is None else "dataset" for e in eps)
-    for n, var in enumerate(args.variants, start=1):
+    for n, var in enumerate(args.variants, start=args.number):
         forecasts, missing = [], Counter()
         for e in eps:
             p = variant(e, with_prior(e, preds.get(e["key"]), priors, args.prior_weight), var, args.anchor_weight)
@@ -430,6 +430,7 @@ def main() -> None:
             p.add_argument("--model-name", required=True, help='permanent leaderboard name, e.g. "DYOR-35B-A3B"')
             p.add_argument("--model-org", default=None)
             p.add_argument("--variants", nargs="+", default=["pure", "anchored"], choices=["pure", "anchored"])
+            p.add_argument("--number", type=int, default=1, help="N in <due>.<org>.<N>.json for the first variant")
     args = ap.parse_args()
     {"fetch": cmd_fetch, "build": cmd_build, "run": cmd_run, "submit": cmd_submit, "score": cmd_score}[args.cmd](args)
 
