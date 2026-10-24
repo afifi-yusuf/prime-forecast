@@ -306,15 +306,23 @@ def pooled(due: str, name: str, pool: list[str] | None) -> dict[str, float]:
     return {k: sum(r[k] for r in runs if k in r) / sum(k in r for r in runs) for k in keys}
 
 
-def parse_priors(items: list[str] | None) -> dict[str, float]:
-    return {s: float(v) for s, v in (i.split("=") for i in (items or []))}
+def parse_priors(items: list[str] | None) -> dict[str, tuple[float, float | None]]:
+    """SOURCE=RATE or SOURCE=RATE:WEIGHT (model weight; default --prior-weight)."""
+    out = {}
+    for i in items or []:
+        src, v = i.split("=")
+        rate, _, w = v.partition(":")
+        out[src] = (float(rate), float(w) if w else None)
+    return out
 
 
-def with_prior(e: dict, p: float | None, priors: dict[str, float], w: float) -> float | None:
-    """Dataset questions from a listed source: blend toward that source's historical YES rate."""
+def with_prior(e: dict, p: float | None, priors: dict, w: float) -> float | None:
+    """Dataset questions from a listed source: blend toward that source's rate (a base rate, or 0.5 for noise)."""
     if p is None or e["resolution_date"] is None or e["source"] not in priors:
         return p
-    return w * p + (1 - w) * priors[e["source"]]
+    rate, wsrc = priors[e["source"]]
+    w = w if wsrc is None else wsrc
+    return w * p + (1 - w) * rate
 
 
 def _logit(p: float) -> float:
@@ -396,7 +404,7 @@ def main() -> None:
         if name in ("submit", "score"):
             p.add_argument("--pool", nargs="*", default=None, help="more run names to average with --name, per episode")
             p.add_argument("--source-prior", nargs="*", default=None,
-                           help="SOURCE=RATE: blend that source's dataset forecasts toward its historical YES rate")
+                           help="SOURCE=RATE[:WEIGHT]: blend that source's dataset forecasts toward RATE with model weight WEIGHT")
             p.add_argument("--prior-weight", type=float, default=0.5, help="model weight when a source prior applies")
         if name == "run":
             p.add_argument("--mode", choices=["historical", "live"], required=True)
