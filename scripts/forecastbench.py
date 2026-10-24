@@ -285,6 +285,24 @@ def predictions(due: str, name: str) -> dict[str, float]:
     return {k: sum(v) / len(v) for k, v in acc.items()}
 
 
+def pooled(due: str, name: str, pool: list[str] | None) -> dict[str, float]:
+    """Average each episode's forecast across runs (each run's own mean first); a run missing an episode is skipped."""
+    runs = [predictions(due, n) for n in [name, *(pool or [])]]
+    keys = set().union(*runs)
+    return {k: sum(r[k] for r in runs if k in r) / sum(k in r for r in runs) for k in keys}
+
+
+def parse_priors(items: list[str] | None) -> dict[str, float]:
+    return {s: float(v) for s, v in (i.split("=") for i in (items or []))}
+
+
+def with_prior(e: dict, p: float | None, priors: dict[str, float], w: float) -> float | None:
+    """Dataset questions from a listed source: blend toward that source's historical YES rate."""
+    if p is None or e["resolution_date"] is None or e["source"] not in priors:
+        return p
+    return w * p + (1 - w) * priors[e["source"]]
+
+
 def _logit(p: float) -> float:
     p = min(max(p, 1e-4), 1 - 1e-4)
     return math.log(p / (1 - p))
@@ -299,12 +317,13 @@ def variant(e: dict, p: float | None, name: str, w: float) -> float | None:
 def cmd_submit(args) -> None:
     qset = load_set(args.due)
     eps = episodes(qset)
-    preds = predictions(args.due, args.name)
+    preds = pooled(args.due, args.name, args.pool)
+    priors = parse_priors(args.source_prior)
     totals = Counter("market" if e["resolution_date"] is None else "dataset" for e in eps)
     for n, var in enumerate(args.variants, start=1):
         forecasts, missing = [], Counter()
         for e in eps:
-            p = variant(e, preds.get(e["key"]), var, args.anchor_weight)
+            p = variant(e, with_prior(e, preds.get(e["key"]), priors, args.prior_weight), var, args.anchor_weight)
             if p is None:
                 missing["market" if e["resolution_date"] is None else "dataset"] += 1
                 continue
@@ -332,9 +351,12 @@ def cmd_score(args) -> None:
     qset = load_set(args.due)
     eps = {e["key"]: e for e in episodes(qset)}
     truth = resolved_truth(args.due)
-    preds = predictions(args.due, args.name)
+    preds = pooled(args.due, args.name, args.pool)
+    priors = parse_priors(args.source_prior)
     rows = [{"source": eps[k]["source"], "kind": "market" if eps[k]["resolution_date"] is None else "dataset",
              "y": y, "policy": preds[k], "anchored": variant(eps[k], preds[k], "anchored", args.anchor_weight),
+             "submitted": variant(eps[k], with_prior(eps[k], preds[k], priors, args.prior_weight), "anchored",
+                                  args.anchor_weight),
              "crowd": eps[k]["crowd"]} for k, y in truth.items() if k in preds and k in eps]
 
     def brier(xs, field):
@@ -344,7 +366,8 @@ def cmd_score(args) -> None:
     groups = [("overall", rows)] + [(k, [x for x in rows if x["kind"] == k]) for k in ("market", "dataset")]
     groups += [(s, [x for x in rows if x["source"] == s]) for s in sorted({x["source"] for x in rows})]
     print(json.dumps({g: {"n": len(xs), "policy": brier(xs, "policy"), "anchored": brier(xs, "anchored"),
-                          "crowd": brier(xs, "crowd"), "always_0.5": 0.25} for g, xs in groups}, indent=1))
+                          "anchored+prior": brier(xs, "submitted"), "crowd": brier(xs, "crowd"), "always_0.5": 0.25}
+                      for g, xs in groups}, indent=1))
     print("Brier, lower is better. The leaderboard reports a difficulty-adjusted Brier Index instead.")
 
 
@@ -356,6 +379,11 @@ def main() -> None:
         p.add_argument("--due", required=True, help="round's forecast due date, e.g. 2026-08-16")
         p.add_argument("--name", default="dyor-v4", help="run name under outputs/forecastbench/runs/<due>/")
         p.add_argument("--anchor-weight", type=float, default=0.8, help="crowd weight in the anchored variant")
+        if name in ("submit", "score"):
+            p.add_argument("--pool", nargs="*", default=None, help="more run names to average with --name, per episode")
+            p.add_argument("--source-prior", nargs="*", default=None,
+                           help="SOURCE=RATE: blend that source's dataset forecasts toward its historical YES rate")
+            p.add_argument("--prior-weight", type=float, default=0.5, help="model weight when a source prior applies")
         if name == "run":
             p.add_argument("--mode", choices=["historical", "live"], required=True)
             p.add_argument("--base-url", default="http://localhost:8000/v1")
