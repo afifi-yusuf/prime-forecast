@@ -117,7 +117,7 @@ case "${1:-}" in
   run)
     due=${2:?due date}
     box "cd $W/prime-forecast && .venv/bin/python scripts/forecastbench.py fetch --due $due || exit 1
-      set -a; . ../secrets.env; set +a
+      set -a; . ../secrets.env; set +a; export PF_TREND_PROB=0  # trend fit without probabilities (FRED test)
       { setsid nohup .venv/bin/python scripts/forecastbench.py run --due $due --mode live --name live --batch 300 \
           --max-concurrent 40 > ../run_$due.log 2>&1 < /dev/null & } > /dev/null 2>&1
       sleep 20; grep -E 'episodes to run' $W/run_$due.log" ;;
