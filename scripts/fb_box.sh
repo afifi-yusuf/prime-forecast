@@ -127,11 +127,11 @@ case "${1:-}" in
       [ -n '${2:-}' ] && tr '\r' '\n' < $W/run_${2:-x}.log | grep -E 'episodes to run|batch|retry|coverage|Error' | tail -6;
       sudo shutdown --show 2>&1 | head -1" ;;
   submit)  # file 1: DYOR; file 2 (if the base run exists): DYOR+base averaged. Same post-processing for both.
-    due=${2:?due date}; post="--variants anchored --source-prior ${FB_PRIORS:-acled=0.12 yfinance=0.5:0} --climatology 0.25 --live-crowd"
+    due=${2:?due date}; post="--variants anchored --source-prior ${FB_PRIORS:-acled=0.12 yfinance=0.5:0 fred=0.63:0.75} --climatology 0.25 --live-crowd"
     box "cd $W/prime-forecast && .venv/bin/python scripts/forecastbench.py submit --due $due --name live --org '${FB_ORG:?}' \
       --model-name '${FB_MODEL_NAME:?}' $post --number 1 && if [ -f outputs/forecastbench/runs/$due/live-base/rollouts.jsonl ]; then \
       .venv/bin/python scripts/forecastbench.py submit --due $due --name live --pool live-base --org '$FB_ORG' \
-      --model-name '$FB_MODEL_NAME (ensemble)' $post --number 2; fi"
+      --model-name '$FB_MODEL_NAME (ensemble)' $post --pool-weight wikipedia=0.25 --number 2; fi"
     mkdir -p "$ROOT/outputs/forecastbench/runs/$due/live"
     scp -i "$FB_KEY" -q "ubuntu@$(ip):$W/prime-forecast/outputs/forecastbench/runs/$due/live/*" "$ROOT/outputs/forecastbench/runs/$due/live/"
     ls -l "$ROOT/outputs/forecastbench/runs/$due/live/" ;;

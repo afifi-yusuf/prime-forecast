@@ -395,11 +395,20 @@ def climatology(eps: list[dict], due: str, path: Path) -> dict[str, float]:
     return out
 
 
-def pooled(due: str, name: str, pool: list[str] | None) -> dict[str, float]:
-    """Average each episode's forecast across runs (each run's own mean first); a run missing an episode is skipped."""
+def pooled(due: str, name: str, pool: list[str] | None, first_weight: dict[str, float] | None = None) -> dict[str, float]:
+    """Average each episode's forecast across runs (each run's own mean first); a run missing an episode is skipped.
+    first_weight: per-source weight on the --name run (the rest is split evenly over the pool), e.g. wikipedia=0.25."""
     runs = [predictions(due, n) for n in [name, *(pool or [])]]
-    keys = set().union(*runs)
-    return {k: sum(r[k] for r in runs if k in r) / sum(k in r for r in runs) for k in keys}
+    out = {}
+    for k in set().union(*runs):
+        have = [i for i, r in enumerate(runs) if k in r]
+        w1 = (first_weight or {}).get(k.split(":")[1])
+        if w1 is None or len(have) < 2 or 0 not in have:
+            out[k] = sum(runs[i][k] for i in have) / len(have)
+        else:
+            rest = [i for i in have if i != 0]
+            out[k] = w1 * runs[0][k] + (1 - w1) * sum(runs[i][k] for i in rest) / len(rest)
+    return out
 
 
 def parse_priors(items: list[str] | None) -> dict[str, tuple[float, float | None]]:
@@ -435,7 +444,7 @@ def variant(e: dict, p: float | None, name: str, w: float) -> float | None:
 def cmd_submit(args) -> None:
     qset = load_set(args.due)
     eps = episodes(qset)
-    preds = pooled(args.due, args.name, args.pool)
+    preds = pooled(args.due, args.name, args.pool, {s: float(w) for s, w in (x.split("=") for x in args.pool_weight or [])})
     priors = parse_priors(args.source_prior)
     if args.climatology is not None:  # DBnomics: blend the model with station climatology (model weight W)
         clim = climatology(eps, qset["forecast_due_date"], run_dir(args.due, args.name) / "climatology.json")
@@ -505,6 +514,8 @@ def main() -> None:
         p.add_argument("--anchor-weight", type=float, default=0.8, help="crowd weight in the anchored variant")
         if name in ("submit", "score"):
             p.add_argument("--pool", nargs="*", default=None, help="more run names to average with --name, per episode")
+            p.add_argument("--pool-weight", nargs="*", default=None,
+                           help="SOURCE=W: weight on the --name run for that source when pooling (default equal)")
             p.add_argument("--source-prior", nargs="*", default=None,
                            help="SOURCE=RATE[:WEIGHT]: blend that source's dataset forecasts toward RATE with model weight WEIGHT")
             p.add_argument("--prior-weight", type=float, default=0.5, help="model weight when a source prior applies")
