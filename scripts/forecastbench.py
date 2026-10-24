@@ -32,13 +32,15 @@ Submission variants (from the same rollouts, no extra compute):
   pure        the policy's own probability everywhere
   anchored    market questions: logit blend w*logit(crowd) + (1-w)*logit(policy); dataset questions unchanged
 
-Everything is written under outputs/forecastbench/ (gitignored); `run` appends and resumes.
+Everything is written under outputs/forecastbench/ (gitignored); `run` appends and resumes. Each run keeps
+rollouts.jsonl (one line per rollout: probability, tokens) and traces.jsonl.gz (the full transcripts).
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import json
 import math
 import os
@@ -160,6 +162,17 @@ def run_dir(due: str, name: str) -> Path:
 
 # ------------------------------------------------------------------ rollouts
 
+def _plain(x):
+    """verifiers messages mix dicts and pydantic models; make them plain JSON (reasoning_content included)."""
+    if hasattr(x, "model_dump"):
+        x = x.model_dump(exclude_none=True)
+    if isinstance(x, dict):
+        return {k: _plain(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_plain(v) for v in x]
+    return x
+
+
 def rollouts(rows: list[dict], args, mode: str) -> list[dict]:
     """Evaluate rows in this repo's environment against an OpenAI-compatible endpoint."""
     import verifiers as vf
@@ -192,7 +205,9 @@ def rollouts(rows: list[dict], args, mode: str) -> list[dict]:
         usage = o.get("token_usage") or {}
         out.append({"key": k, "rollout_idx": seen[k], "p": float(p) if p is not None and p >= 0 else None,
                     "tokens_in": usage.get("input_tokens") or usage.get("prompt_tokens"),
-                    "tokens_out": usage.get("output_tokens") or usage.get("completion_tokens")})
+                    "tokens_out": usage.get("output_tokens") or usage.get("completion_tokens"),
+                    "trace": {"completion": _plain(o.get("completion")), "metrics": o.get("metrics"),
+                              "stop_condition": o.get("stop_condition"), "error": o.get("error")}})
         seen[k] += 1
     return out
 
@@ -222,6 +237,8 @@ def cmd_build(args) -> None:
 def cmd_run(args) -> None:
     qset = load_set(args.due)
     eps = episodes(qset)
+    if args.resolved_only:  # rehearsals: spend compute only on episodes the resolution set can score
+        eps = [e for e in eps if e["key"] in resolved_truth(args.due)]
     if args.sample:
         eps = stratified(eps, args.sample, args.seed)
     path = run_dir(args.due, args.name) / "rollouts.jsonl"
@@ -245,9 +262,12 @@ def cmd_run(args) -> None:
                         "tokens_in": 0, "tokens_out": 0} for e in batch]
             else:
                 res = rollouts([env_row(e, cutoff) for e in batch], args, args.mode)
-            with open(path, "a") as fh:
-                for r in res:
+            with open(path, "a") as fh, gzip.open(path.with_name("traces.jsonl.gz"), "at") as tf:
+                for r in res:  # full transcripts kept apart: rollouts.jsonl stays small and fast to rescore
+                    trace = r.pop("trace", None)
                     fh.write(json.dumps({**r, "cutoff": cutoff, "model": args.model}) + "\n")
+                    if trace is not None:
+                        tf.write(json.dumps({"key": r["key"], "rollout_idx": r["rollout_idx"], **trace}, default=str) + "\n")
             print(f"  batch {i // args.batch + 1}: {sum(r['p'] is not None for r in res)}/{len(res)} submitted")
     have = set(predictions(args.due, args.name))
     print(f"coverage: {sum(e['key'] in have for e in eps)}/{len(eps)} episodes have a forecast")
@@ -299,12 +319,16 @@ def cmd_submit(args) -> None:
               f"{'OK' if ok else 'BELOW 95% (missing forecasts are imputed as 0.5)'}")
 
 
+def resolved_truth(due: str) -> dict[str, float]:
+    res = json.loads(resolutions_path(due).read_text())["resolutions"]
+    return {key(r["source"], r["id"], None if r["source"] in MARKET_SOURCES else r["resolution_date"]):
+            float(r["resolved_to"]) for r in res if r.get("resolved")}
+
+
 def cmd_score(args) -> None:
     qset = load_set(args.due)
     eps = {e["key"]: e for e in episodes(qset)}
-    res = json.loads(resolutions_path(args.due).read_text())["resolutions"]
-    truth = {key(r["source"], r["id"], None if r["source"] in MARKET_SOURCES else r["resolution_date"]):
-             float(r["resolved_to"]) for r in res if r.get("resolved")}
+    truth = resolved_truth(args.due)
     preds = predictions(args.due, args.name)
     rows = [{"source": eps[k]["source"], "kind": "market" if eps[k]["resolution_date"] is None else "dataset",
              "y": y, "policy": preds[k], "anchored": variant(eps[k], preds[k], "anchored", args.anchor_weight),
@@ -343,6 +367,7 @@ def main() -> None:
             p.add_argument("--max-concurrent", type=int, default=16)
             p.add_argument("--temperature", type=float, default=1.0)
             p.add_argument("--max-tokens", type=int, default=12288)
+            p.add_argument("--resolved-only", action="store_true", help="only episodes already in the resolution set")
             p.add_argument("--retries", type=int, default=2, help="coverage passes over episodes with no forecast")
             p.add_argument("--stub", action="store_true", help="random forecasts; tests the pipeline without a model")
         if name == "submit":
