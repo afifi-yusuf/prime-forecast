@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import math
 import re
 import urllib.parse
@@ -471,6 +472,17 @@ async def analyze_trend(
         prob_combined = max(0.05, min(0.95, prob_combined))
 
         last_row = recent.iloc[-1]
+        if os.environ.get("PF_TREND_PROB", "1").strip().lower() in ("0", "false", "no"):
+            # Trend facts only: a ready-made probability gets copied into submit as if it were calibrated.
+            return json.dumps({
+                "source": src, "comparison_value": comp, "resolution_date": res_date, "end_date": end,
+                "last_value": float(last_row["y"]), "last_date": str(last_row["ds"])[:10],
+                "linear_fit_at_resolution": predicted, "residual_std": std, "slope_per_day": float(coeffs[0]),
+                "same_period_prior_years": same_vals,
+                "analysis": (f"Linear fit gives {predicted:.4g} at {res_date} (residual std {std:.3g}); last value "
+                             f"{float(last_row['y']):.4g} on {str(last_row['ds'])[:10]}. A trend fit is not a forecast: "
+                             f"weigh it against noise over the horizon and any scheduled events."),
+            }, default=str)
         return json.dumps({
             "source": src,
             "comparison_value": comp,
