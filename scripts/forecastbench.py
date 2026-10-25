@@ -398,6 +398,49 @@ def climatology(eps: list[dict], due: str, path: Path) -> dict[str, float]:
     return out
 
 
+def fred_history(eps: list[dict], due: str, path: Path, lo: float = 0.1, hi: float = 0.9) -> dict[str, float]:
+    """FRED episodes whose series, over the last 10 years before due, rose over the same horizon almost always (>= hi)
+    or almost never (<= lo): that empirical rate. Others are left to the model (the general rate loses to 0.5).
+    Rehearsals: 10/10 such episodes resolved on history's side. Needs FRED_API_KEY. Cached at path."""
+    if path.exists():
+        return json.loads(path.read_text())
+    import bisect
+    from datetime import date, timedelta
+    due_d = date.fromisoformat(due)
+    out, series = {}, {}
+    for e in eps:
+        if e["source"] != "fred" or e["resolution_date"] is None:
+            continue
+        sid = e["fb_id"]
+        if sid not in series:
+            try:
+                doc = _get_json("https://api.stlouisfed.org/fred/series/observations?" + urllib.parse.urlencode(
+                    {"series_id": sid, "api_key": os.environ["FRED_API_KEY"], "file_type": "json"}))
+                series[sid] = [(date.fromisoformat(o["date"]), float(o["value"])) for o in doc["observations"]
+                               if o["value"] not in (".", "") and date.fromisoformat(o["date"]) < due_d]
+            except Exception:  # noqa: BLE001
+                series[sid] = []
+        obs = series[sid]
+        if len(obs) < 30:
+            continue
+        ds = [t for t, _ in obs]
+        h = date.fromisoformat(e["resolution_date"]) - due_d
+
+        def at(t):
+            i = bisect.bisect_right(ds, t) - 1
+            return obs[i][1] if i >= 0 else None
+        pairs = [(at(t), at(t + h)) for t in ds if due_d - timedelta(days=3650) <= t <= due_d - h]
+        pairs = [(a, b) for a, b in pairs if a is not None and b is not None]
+        if len(pairs) < 10:
+            continue
+        rate = (sum(b > a for a, b in pairs) + 0.5) / (len(pairs) + 1)
+        if rate <= lo or rate >= hi:
+            out[e["key"]] = rate
+    path.write_text(json.dumps(out, indent=1))
+    print(f"fred history: {len(out)} near-certain FRED episodes from {sum(bool(v) for v in series.values())} series")
+    return out
+
+
 def pooled(due: str, name: str, pool: list[str] | None, first_weight: dict[str, float] | None = None) -> dict[str, float]:
     """Average each episode's forecast across runs (each run's own mean first); a run missing an episode is skipped.
     first_weight: per-source weight on the --name run (the rest is split evenly over the pool), e.g. wikipedia=0.25."""
@@ -449,6 +492,7 @@ def _logit(p: float) -> float:
 
 
 def variant(e: dict, p: float | None, name: str, w: float) -> float | None:
+    w = e.get("anchor_w", w)  # a fresher (live) crowd price can carry more weight than a 10-day-old freeze value
     if name == "anchored" and e["resolution_date"] is None and e["crowd"] is not None:
         return e["crowd"] if p is None else 1 / (1 + math.exp(-(w * _logit(e["crowd"]) + (1 - w) * _logit(p))))
     return p
@@ -462,9 +506,12 @@ def cmd_submit(args) -> None:
     if args.climatology is not None:  # DBnomics: blend the model with station climatology (model weight W)
         clim = climatology(eps, qset["forecast_due_date"], run_dir(args.due, args.name) / "climatology.json")
         preds = {k: (args.climatology * p + (1 - args.climatology) * clim[k]) if k in clim else p for k, p in preds.items()}
+    if args.fred_history is not None:  # near-certain FRED series: W*model + (1-W)*history
+        fh = fred_history(eps, qset["forecast_due_date"], run_dir(args.due, args.name) / "fred_history.json")
+        preds = {k: (args.fred_history * p + (1 - args.fred_history) * fh[k]) if k in fh else p for k, p in preds.items()}
     if args.live_crowd:  # fresher anchor than the freeze value (10 days old in most rounds)
         live = live_crowd(eps, run_dir(args.due, args.name) / "live_crowd.json")
-        eps = [{**e, "crowd": live.get(e["key"], e["crowd"])} for e in eps]
+        eps = [{**e, "crowd": live[e["key"]], "anchor_w": args.live_anchor_weight} if e["key"] in live else e for e in eps]
     totals = Counter("market" if e["resolution_date"] is None else "dataset" for e in eps)
     for n, var in enumerate(args.variants, start=args.number):
         forecasts, missing = [], Counter()
@@ -560,8 +607,11 @@ def main() -> None:
             p.add_argument("--variants", nargs="+", default=["pure", "anchored"], choices=["pure", "anchored"])
             p.add_argument("--climatology", type=float, default=None, metavar="W",
                            help="DBnomics temperature questions: W*model + (1-W)*station climatology")
+            p.add_argument("--fred-history", type=float, default=None, metavar="W",
+                           help="FRED series that almost always/never rose over the horizon: W*model + (1-W)*history")
             p.add_argument("--live-crowd", action="store_true",
                            help="anchor market questions on current platform prices (cached in the run dir)")
+            p.add_argument("--live-anchor-weight", type=float, default=0.8, help="crowd weight where --live-crowd found a price")
             p.add_argument("--number", type=int, default=1, help="N in <due>.<org>.<N>.json for the first variant")
     args = ap.parse_args()
     {"fetch": cmd_fetch, "build": cmd_build, "run": cmd_run, "submit": cmd_submit, "score": cmd_score}[args.cmd](args)
