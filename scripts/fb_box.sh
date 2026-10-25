@@ -29,7 +29,7 @@ FB_HOURS=${_env_hours:-${FB_HOURS:-24}}  # the box terminates at this deadline, 
 FB_BRANCH=${FB_BRANCH:-main} FB_SEARCH=${FB_SEARCH:-agentcore,exa}
 FB_REGIONS=${FB_REGIONS:-us-east-1 us-west-2}
 FB_TYPES=${FB_TYPES:-g6.12xlarge g5.12xlarge g6.24xlarge g5.24xlarge g6e.12xlarge p4d.24xlarge}
-STATE=$HOME/.fb_box.state
+STATE=${FB_STATE:-$HOME/.fb_box.state}  # one file per box when running several (FB_STATE=...)
 FB_INSTANCE="" FB_REGION=""
 [ -f "$STATE" ] && source "$STATE"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -74,12 +74,12 @@ command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh >/de
 ( [ -x vllm/bin/vllm ] || { uv venv -q --python 3.12 vllm && uv pip install -q -p vllm/bin/python "vllm==0.32.0" --torch-backend=auto; } ) > vllm_install.log 2>&1 &
 [ -x dl/bin/python ] || { uv venv -q --python 3.12 dl && uv pip install -q -p dl/bin/python "huggingface_hub[hf_xet]" safetensors torch numpy; }
 [ -f $N/models/base/model.safetensors.index.json ] || dl/bin/hf download Qwen/Qwen3.5-35B-A3B --local-dir $N/models/base >/dev/null
-[ -f $N/models/merged/MERGED_FROM.json ] || dl/bin/python prime-forecast/scripts/merge_lora.py \
+[ "${FB_SERVE_DIR:-merged}" != merged ] || [ -f $N/models/merged/MERGED_FROM.json ] || dl/bin/python prime-forecast/scripts/merge_lora.py \
   --base $N/models/base --adapter $N/adapters/dyor --out $N/models/merged | tail -1
 wait
 cat > serve.sh <<'EOS'
 export VLLM_API_KEY=local VLLM_USE_FLASHINFER_SAMPLER=0  # FlashInfer's sampler JIT-compiles; no CUDA toolkit here
-exec $W/vllm/bin/vllm serve $N/models/merged --served-model-name dyor-v4 \\
+exec $W/vllm/bin/vllm serve $N/models/${FB_SERVE_DIR:-merged} --served-model-name ${FB_SERVE_NAME:-dyor-v4} \\
   --host 127.0.0.1 --port 8000 --tensor-parallel-size \$(nvidia-smi -L | wc -l) --quantization fp8 \\
   --max-model-len 32768 --gpu-memory-utilization 0.90 \\
   --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 \\
@@ -89,7 +89,7 @@ EOS
 pgrep -f "[v]llm/bin/vllm serve" >/dev/null || { setsid nohup bash serve.sh > serve.log 2>&1 < /dev/null & } > /dev/null 2>&1
 for i in \$(seq 1 90); do curl -sf -H "Authorization: Bearer local" localhost:8000/v1/models >/dev/null && break
   pgrep -f "[v]llm/bin/vllm serve" >/dev/null || { tail -20 serve.log; exit 1; }; sleep 10; done
-curl -s localhost:8000/v1/chat/completions -H "Authorization: Bearer local" -H "content-type: application/json" -d '{"model":"dyor-v4","max_tokens":1024,"messages":[{"role":"user","content":"Will the Fed cut rates in December? Search first."}],"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}]}' \
+curl -s localhost:8000/v1/chat/completions -H "Authorization: Bearer local" -H "content-type: application/json" -d '{"model":"${FB_SERVE_NAME:-dyor-v4}","max_tokens":1024,"messages":[{"role":"user","content":"Will the Fed cut rates in December? Search first."}],"tools":[{"type":"function","function":{"name":"web_search","description":"Search the web","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}]}' \
   | python3 -c "import json,sys; m=json.load(sys.stdin)['choices'][0]['message']; print('vLLM ready; tool call:', (m.get('tool_calls') or [{}])[0].get('function',{}).get('name','NONE'))"
 EOF
 }
