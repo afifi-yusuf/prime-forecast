@@ -506,9 +506,18 @@ def cmd_submit(args) -> None:
     if args.climatology is not None:  # DBnomics: blend the model with station climatology (model weight W)
         clim = climatology(eps, qset["forecast_due_date"], run_dir(args.due, args.name) / "climatology.json")
         preds = {k: (args.climatology * p + (1 - args.climatology) * clim[k]) if k in clim else p for k, p in preds.items()}
+    specific = set()  # episodes a specific rule already handled: the generic source priors skip them
     if args.fred_history is not None:  # near-certain FRED series: W*model + (1-W)*history
         fh = fred_history(eps, qset["forecast_due_date"], run_dir(args.due, args.name) / "fred_history.json")
         preds = {k: (args.fred_history * p + (1 - args.fred_history) * fh[k]) if k in fh else p for k, p in preds.items()}
+        specific |= set(fh)
+    if args.overrides:  # {"<source>:<id>:<resolution date>": p} with a documented source (e.g. Fed-funds markets)
+        ov = json.loads(Path(args.overrides).read_text())["forecasts"]
+        for e in eps:
+            k = f'{e["source"]}:{e["fb_id"]}:{e["resolution_date"]}'
+            if k in ov:
+                preds[e["key"]] = ov[k]
+                specific.add(e["key"])
     if args.live_crowd:  # fresher anchor than the freeze value (10 days old in most rounds)
         live = live_crowd(eps, run_dir(args.due, args.name) / "live_crowd.json")
         eps = [{**e, "crowd": live[e["key"]], "anchor_w": args.live_anchor_weight} if e["key"] in live else e for e in eps]
@@ -516,8 +525,10 @@ def cmd_submit(args) -> None:
     for n, var in enumerate(args.variants, start=args.number):
         forecasts, missing = [], Counter()
         for e in eps:
-            p = variant(e, with_prior(e, preds.get(e["key"]), priors, args.prior_weight, qset["forecast_due_date"]), var,
-                        args.anchor_weight)
+            base_p = preds.get(e["key"])
+            if e["key"] not in specific:
+                base_p = with_prior(e, base_p, priors, args.prior_weight, qset["forecast_due_date"])
+            p = variant(e, base_p, var, args.anchor_weight)
             if p is None:
                 missing["market" if e["resolution_date"] is None else "dataset"] += 1
                 continue
@@ -607,6 +618,7 @@ def main() -> None:
             p.add_argument("--variants", nargs="+", default=["pure", "anchored"], choices=["pure", "anchored"])
             p.add_argument("--climatology", type=float, default=None, metavar="W",
                            help="DBnomics temperature questions: W*model + (1-W)*station climatology")
+            p.add_argument("--overrides", default=None, help="JSON {forecasts: {source:id:resolution_date: p}} applied last")
             p.add_argument("--fred-history", type=float, default=None, metavar="W",
                            help="FRED series that almost always/never rose over the horizon: W*model + (1-W)*history")
             p.add_argument("--live-crowd", action="store_true",
