@@ -414,23 +414,33 @@ def pooled(due: str, name: str, pool: list[str] | None, first_weight: dict[str, 
     return out
 
 
-def parse_priors(items: list[str] | None) -> dict[str, tuple[float, float | None]]:
-    """SOURCE=RATE or SOURCE=RATE:WEIGHT (model weight; default --prior-weight)."""
-    out = {}
+def parse_priors(items: list[str] | None) -> list[tuple[str, str, int | None, float, float | None]]:
+    """SOURCE[/IDPREFIX][@MAXDAYS]=RATE[:WEIGHT]; WEIGHT is the model weight (default --prior-weight).
+    e.g. acled=0.12, yfinance=0.5:0, serpapi/amazon@30=0.04:0.5 (Amazon price questions resolving within 30 days).
+    The first matching rule applies."""
+    out = []
     for i in items or []:
-        src, v = i.split("=")
+        lhs, v = i.split("=")
+        lhs, _, days = lhs.partition("@")
+        src, _, prefix = lhs.partition("/")
         rate, _, w = v.partition(":")
-        out[src] = (float(rate), float(w) if w else None)
+        out.append((src, prefix, int(days) if days else None, float(rate), float(w) if w else None))
     return out
 
 
-def with_prior(e: dict, p: float | None, priors: dict, w: float) -> float | None:
-    """Dataset questions from a listed source: blend toward that source's rate (a base rate, or 0.5 for noise)."""
-    if p is None or e["resolution_date"] is None or e["source"] not in priors:
+def with_prior(e: dict, p: float | None, priors: list, w: float, due: str | None = None) -> float | None:
+    """Dataset questions matching a rule: blend toward its rate (a base rate, or 0.5 where the model adds noise)."""
+    if p is None or e["resolution_date"] is None:
         return p
-    rate, wsrc = priors[e["source"]]
-    w = w if wsrc is None else wsrc
-    return w * p + (1 - w) * rate
+    from datetime import date
+    for src, prefix, days, rate, wsrc in priors:
+        if e["source"] != src or not str(e["fb_id"]).startswith(prefix):
+            continue
+        if days is not None and (due is None or (date.fromisoformat(e["resolution_date"]) - date.fromisoformat(due)).days > days):
+            continue
+        ww = w if wsrc is None else wsrc
+        return ww * p + (1 - ww) * rate
+    return p
 
 
 def _logit(p: float) -> float:
@@ -459,7 +469,8 @@ def cmd_submit(args) -> None:
     for n, var in enumerate(args.variants, start=args.number):
         forecasts, missing = [], Counter()
         for e in eps:
-            p = variant(e, with_prior(e, preds.get(e["key"]), priors, args.prior_weight), var, args.anchor_weight)
+            p = variant(e, with_prior(e, preds.get(e["key"]), priors, args.prior_weight, qset["forecast_due_date"]), var,
+                        args.anchor_weight)
             if p is None:
                 missing["market" if e["resolution_date"] is None else "dataset"] += 1
                 continue
@@ -491,7 +502,8 @@ def cmd_score(args) -> None:
     priors = parse_priors(args.source_prior)
     rows = [{"source": eps[k]["source"], "kind": "market" if eps[k]["resolution_date"] is None else "dataset",
              "y": y, "policy": preds[k], "anchored": variant(eps[k], preds[k], "anchored", args.anchor_weight),
-             "submitted": variant(eps[k], with_prior(eps[k], preds[k], priors, args.prior_weight), "anchored",
+             "submitted": variant(eps[k], with_prior(eps[k], preds[k], priors, args.prior_weight, qset["forecast_due_date"]),
+                                  "anchored",
                                   args.anchor_weight),
              "crowd": eps[k]["crowd"]} for k, y in truth.items() if k in preds and k in eps]
 
@@ -520,7 +532,7 @@ def main() -> None:
             p.add_argument("--pool-weight", nargs="*", default=None,
                            help="SOURCE=W: weight on the --name run for that source when pooling (default equal)")
             p.add_argument("--source-prior", nargs="*", default=None,
-                           help="SOURCE=RATE[:WEIGHT]: blend that source's dataset forecasts toward RATE with model weight WEIGHT")
+                           help="SOURCE[/IDPREFIX][@MAXDAYS]=RATE[:WEIGHT]: blend matching dataset forecasts toward RATE (model weight WEIGHT)")
             p.add_argument("--prior-weight", type=float, default=0.5, help="model weight when a source prior applies")
         if name == "run":
             p.add_argument("--mode", choices=["historical", "live"], required=True)
