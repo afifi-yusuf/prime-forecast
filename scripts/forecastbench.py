@@ -378,8 +378,8 @@ def climatology(eps: list[dict], due: str, path: Path) -> dict[str, float]:
     due_d = date.fromisoformat(due)
     out, series = {}, {}
     for e in eps:
-        if e["source"] != "dbnomics" or e["resolution_date"] is None:
-            continue
+        if e["source"] != "dbnomics" or e["resolution_date"] is None or not str(e["fb_id"]).startswith("meteofrance_TEMPERATURE"):
+            continue  # validated on Meteo-France station temperatures only; other DBnomics series stay with the model
         sid = e["fb_id"]
         if sid not in series:
             try:
